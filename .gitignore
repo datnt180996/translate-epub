@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+ebook_translator.db
+*.sqlite
+*.sqlite3
+.playwright/
+node_modules/
+.DS_Store

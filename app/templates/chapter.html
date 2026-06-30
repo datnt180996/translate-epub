@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ chapter.title }} - {{ novel.title }}{% endblock %}
+{% block content %}
+{% if chapter.status in ['translating', 'fetching'] %}
+<script>
+  setTimeout(function() { window.location.reload(); }, 5000);
+</script>
+{% endif %}
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: flex-start">
+    <div>
+      <div class="muted"><a href="/novels/{{ novel.id }}">{{ novel.title }}</a> - Chương {{ chapter.index }}</div>
+      <h2 style="margin: 6px 0 0 0">{{ chapter.title }}</h2>
+      <div class="muted">Trạng thái: <span class="badge {{ chapter.status }}">{{ chapter.status }}</span>
+        {% if chapter.translation_provider %} | Provider: {{ chapter.translation_provider }}{% endif %}
+      </div>
+    </div>
+    <div class="row">
+      <a href="/novels/{{ novel.id }}" class="btn secondary">&larr; Danh sách chương</a>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="toolbar">
+    {% if chapter.status == 'translating' %}
+      <span class="alert" style="padding:6px 10px">⏳ Đang dịch ở nền… trang sẽ tự tải lại khi xong.</span>
+    {% endif %}
+    {% if not chapter.raw_text %}
+      <form method="post" action="/chapters/{{ chapter.id }}/fetch">
+        <button type="submit">Tải nội dung gốc</button>
+      </form>
+    {% endif %}
+    {% if chapter.raw_text %}
+    {% if has_provider %}
+    <form method="post" action="/chapters/{{ chapter.id }}/translate" class="row" style="gap:6px; align-items:center" onsubmit="return confirm('Dịch chương này? Có thể mất lâu tùy độ dài chương và provider.')">
+      <select name="provider" style="max-width:160px">
+        {% for p in providers %}
+          <option value="{{ p }}" {% if p == default_provider %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Dịch chương này</button>
+    </form>
+    {% else %}
+    <span class="alert error" style="padding:6px 10px">Chưa cấu hình API key cho provider nào. Sửa file .env (MINIMAX_API_KEY / DEEPSEEK_API_KEY) rồi restart app.</span>
+    {% endif %}
+    <a class="btn secondary" href="/chapters/{{ chapter.id }}?view=raw">Xem bản gốc</a>
+    <a class="btn secondary" href="/chapters/{{ chapter.id }}?view=vi">Xem bản dịch</a>
+    <a class="btn secondary" href="/chapters/{{ chapter.id }}?view=both">Xem cả hai</a>
+    {% endif %}
+  </div>
+
+  {% if not chapter.raw_text and not chapter.translated_text %}
+    <p class="muted">Chương này chưa có nội dung. Bấm "Tải nội dung gốc" để fetch từ nguồn web.</p>
+  {% endif %}
+
+  {% if view in ['raw', 'both'] and chapter.raw_text %}
+    <h3>Bản gốc (中文)</h3>
+    <div class="chapter-content">{{ chapter.raw_text }}</div>
+  {% endif %}
+
+  {% if view in ['vi', 'both'] and chapter.translated_text %}
+    <h3 style="margin-top:24px">Bản dịch (Tiếng Việt)</h3>
+    <div class="chapter-content">{{ chapter.translated_text }}</div>
+  {% elif not chapter.translated_text and view != 'raw' %}
+    {% if chapter.raw_text %}
+      <p class="muted" style="margin-top:16px">Chưa có bản dịch. Bấm "Dịch chương này" để bắt đầu.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if prev_id or next_id %}
+<div class="row" style="justify-content: space-between">
+  <div>
+    {% if prev_id %}<a class="btn secondary" href="/chapters/{{ prev_id }}">&larr; Chương trước</a>{% endif %}
+  </div>
+  <div>
+    {% if next_id %}<a class="btn secondary" href="/chapters/{{ next_id }}">Chương sau &rarr;</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

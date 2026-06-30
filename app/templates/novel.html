@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ novel.title }} - Ebook Translator{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: flex-start">
+    <div>
+      <h2 style="margin: 0 0 6px 0">{{ novel.title }}</h2>
+      <div class="muted">
+        Nguồn: {{ novel.source_type }}
+        {% if novel.source_url %} - <a href="{{ novel.source_url }}" target="_blank">{{ novel.source_url }}</a>{% endif %}
+      </div>
+      {% if novel.author %}<div class="muted">Tác giả: {{ novel.author }}</div>{% endif %}
+    </div>
+    <div class="row">
+      <a href="/" class="btn secondary">&larr; Trang chủ</a>
+      <form method="post" action="/novels/{{ novel.id }}/fetch-all" onsubmit="return confirm('Fetch tất cả chương từ nguồn web? Có thể mất nhiều thời gian nếu chương nhiều hoặc site chặn bot (sẽ fallback Playwright).')">
+        <button type="submit" class="secondary" {% if novel.source_type != 'web' %}disabled{% endif %}>Fetch toàn bộ</button>
+      </form>
+    </div>
+  </div>
+  {% if novel.description %}
+    <p style="margin-top:10px">{{ novel.description }}</p>
+  {% endif %}
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h3>Danh sách chương ({{ chapters|length }})</h3>
+    {% if chapters %}
+    <ul class="chapters">
+      {% for c in chapters %}
+        <li>
+          <a href="/chapters/{{ c.id }}">{{ c.index }}. {{ c.title }}</a>
+          <span class="badge {{ c.status }}">{{ c.status }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+      <p class="muted">Chưa có chương nào.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Glossary & Style Guide</h3>
+    <form method="post" action="/novels/{{ novel.id }}/style">
+      <label>Style guide (áp dụng cho mọi chương)</label>
+      <textarea name="style_guide" placeholder="Ví dụ:&#10;- Dùng Hán Việt cho thuật ngữ tu luyện: luyện khí, trúc cơ, kim đan...&#10;- Giữ 'Hồng Hoang' thay vì 'Hồng Hoang' ">{{ style_guide }}</textarea>
+      <div style="margin-top:8px"><button type="submit">Lưu style guide</button></div>
+    </form>
+
+    <h3 style="margin-top:18px">Glossary ({{ glossary|length }})</h3>
+    <form method="post" action="/novels/{{ novel.id }}/glossary" class="row" style="margin-bottom:10px">
+      <input type="text" name="source" placeholder="Tên gốc (Trung)" required style="flex:1" />
+      <input type="text" name="target" placeholder="Bản dịch (Việt)" required style="flex:1" />
+      <select name="category" style="max-width:140px">
+        <option value="character">Nhân vật</option>
+        <option value="place">Địa danh</option>
+        <option value="technique">Chiêu thức</option>
+        <option value="item">Pháp bảo</option>
+        <option value="cultivation">Cảnh giới</option>
+        <option value="sect">Tông môn</option>
+        <option value="other">Khác</option>
+      </select>
+      <button type="submit">Thêm</button>
+    </form>
+
+    {% if glossary %}
+    <table class="glossary">
+      <thead><tr><th>Nguồn</th><th>Việt</th><th>Loại</th><th></th></tr></thead>
+      <tbody>
+        {% for t in glossary %}
+        <tr>
+          <td>{{ t.source_text }}</td>
+          <td>{{ t.target_text }}</td>
+          <td><span class="badge pending">{{ t.category }}</span></td>
+          <td>
+            <form method="post" action="/novels/{{ novel.id }}/glossary/{{ t.id }}/delete" style="display:inline">
+              <button type="submit" class="secondary danger">Xóa</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">Chưa có thuật ngữ. Glossary sẽ tự động được trích xuất sau khi dịch các chương.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

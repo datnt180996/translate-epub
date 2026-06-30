@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Ebook Translator{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #181b22;
+      --text: #e6e8ec;
+      --muted: #8a92a3;
+      --accent: #6ea8ff;
+      --accent-strong: #4a86ff;
+      --border: #2a2f3a;
+      --success: #4ade80;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header.topbar {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px;
+      background: #131620;
+    }
+    header.topbar h1 { font-size: 18px; margin: 0; }
+    header.topbar nav a { margin-right: 12px; color: var(--muted); }
+    header.topbar nav a:hover { color: var(--text); }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+    .grid { display: grid; gap: 16px; }
+    .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 14px; }
+    input[type="text"], input[type="url"], textarea, select {
+      width: 100%;
+      background: #11141b;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+    textarea { min-height: 100px; font-family: inherit; }
+    button, .btn {
+      display: inline-block;
+      background: var(--accent-strong);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { background: var(--accent); }
+    button.secondary { background: #2a2f3a; color: var(--text); }
+    button.secondary:hover { background: #353b48; }
+    button.danger { background: var(--danger); }
+    ul.chapters { list-style: none; padding: 0; margin: 0; max-height: 600px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+    ul.chapters li { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    ul.chapters li:last-child { border-bottom: none; }
+    ul.chapters li a { flex: 1; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .badge.pending { background: #3a3f4b; color: #cfd5e0; }
+    .badge.fetched { background: #1f3a5c; color: #9ec3ff; }
+    .badge.fetching { background: #3a3a1f; color: #e3c97a; }
+    .badge.translating { background: #3a2a4a; color: #c9a3e3; }
+    .badge.translated { background: #1d4a2f; color: #87e1a3; }
+    .badge.error { background: #4a1d1d; color: #ff9b9b; }
+    .chapter-content {
+      background: #11141b;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      white-space: pre-wrap;
+      line-height: 1.8;
+      font-size: 16px;
+    }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .muted { color: var(--muted); font-size: 13px; }
+    table.glossary { width: 100%; border-collapse: collapse; }
+    table.glossary th, table.glossary td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; font-size: 14px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 12px; }
+    .alert.info { background: #1f3a5c; color: #b9d4ff; }
+    .alert.error { background: #4a1d1d; color: #ffb0b0; }
+    .alert.success { background: #1d4a2f; color: #a3edb9; }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline; }
+    .htmx-request.htmx-indicator { display: inline; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>📖 Ebook Translator</h1>
+    <nav>
+      <a href="/">Trang chủ</a>
+    </nav>
+    <div style="flex:1"></div>
+    <span class="muted">Dịch truyện tu tiền Trung -> Việt</span>
+  </header>
+  <main>
+    {% if flash %}
+      <div class="alert {{ flash.type }}">{{ flash.message }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

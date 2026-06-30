@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Trang chủ - Ebook Translator{% endblock %}
+{% block content %}
+{% if not has_provider %}
+  <div class="alert error">Chưa cấu hình API key cho provider nào. Sửa file <code>.env</code> (<code>MINIMAX_API_KEY</code> / <code>DEEPSEEK_API_KEY</code>) rồi restart app để có thể dịch.</div>
+{% endif %}
+<div class="grid cols-2">
+  <div class="card">
+    <h3>Import từ URL web</h3>
+    <form method="post" action="/novels/import-url">
+      <label for="url">Link truyện (mục lục)</label>
+      <input type="url" id="url" name="url" placeholder="https://www.69shuba.com/book/51256.htm" required />
+      <div class="muted" style="margin-top:6px">
+        Hỗ trợ: 69shuba.com và các site có link chương dạng <code>.html</code>.
+      </div>
+      <div style="margin-top:12px">
+        <button type="submit">Import từ URL</button>
+      </div>
+    </form>
+  </div>
+  <div class="card">
+    <h3>Import từ file EPUB</h3>
+    <form method="post" action="/novels/import-epub" enctype="multipart/form-data">
+      <label for="epub">Chọn file .epub</label>
+      <input type="file" id="epub" name="epub" accept=".epub" required />
+      <div style="margin-top:12px">
+        <button type="submit">Import EPUB</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Truyện đã import</h3>
+  {% if novels %}
+    <table class="glossary">
+      <thead>
+        <tr>
+          <th>Tiêu đề</th>
+          <th>Nguồn</th>
+          <th>Số chương</th>
+          <th>Ngày tạo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for n in novels %}
+          <tr>
+            <td><a href="/novels/{{ n.id }}">{{ n.title }}</a></td>
+            <td><span class="badge {{ n.source_type == 'web' and 'fetched' or 'pending' }}">{{ n.source_type }}</span></td>
+            <td>{{ chapter_counts.get(n.id, 0) }}</td>
+            <td class="muted">{{ n.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+              <form method="post" action="/novels/{{ n.id }}/delete" style="display:inline" onsubmit="return confirm('Xóa truyện này?')">
+                <button type="submit" class="secondary danger">Xóa</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Chưa có truyện nào. Hãy import từ URL hoặc upload EPUB.</p>
+  {% endif %}
+</div>
+{% endblock %}
