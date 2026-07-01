@@ -61,36 +61,9 @@
         </div>
       </div>
 
-      <div id="nd-stats" class="nd-stats">
-        <div class="nd-stat">
-          <div class="nd-stat-head">
-            <span class="nd-stat-label">Tổng chương</span>
-            <span class="material-symbols-outlined">list_alt</span>
-          </div>
-          <div class="nd-stat-value">{{ stats.total or 0 }}</div>
-        </div>
-        <div class="nd-stat">
-          <div class="nd-stat-head">
-            <span class="nd-stat-label">Bản gốc</span>
-            <span class="material-symbols-outlined">cloud_done</span>
-          </div>
-          <div class="nd-stat-value">{{ stats.raw or 0 }}</div>
-        </div>
-        <div class="nd-stat">
-          <div class="nd-stat-head">
-            <span class="nd-stat-label success">Đã dịch</span>
-            <span class="material-symbols-outlined">check_circle</span>
-          </div>
-          <div class="nd-stat-value">{{ stats.translated or 0 }}</div>
-        </div>
-        <div class="nd-stat {% if (stats.active_error or 0) > 0 %}nd-pulse{% endif %}">
-          <div class="nd-stat-head">
-            <span class="nd-stat-label error">Lỗi/Dịch</span>
-            <span class="material-symbols-outlined">sync_problem</span>
-          </div>
-          <div class="nd-stat-value">{{ stats.active_error or 0 }}</div>
-        </div>
-      </div>
+      {% set stats = novel_stats or {} %}
+      {% set poll_url = '/novels/' ~ novel.id ~ '/stats' %}
+      {% include 'partials/novel_stats.html' with context %}
     </div>
   </div>
 </section>
@@ -102,6 +75,12 @@
         <span class="material-symbols-outlined">format_list_bulleted</span>
         Danh sách chương
       </h2>
+      {% if chapters %}
+        <div class="nd-search-wrap">
+          <span class="material-symbols-outlined" aria-hidden="true">search</span>
+          <input id="nd-chapter-search" class="nd-search-input" type="search" placeholder="Tìm kiếm chương..." autocomplete="off" aria-label="Tìm kiếm chương">
+        </div>
+      {% endif %}
     </div>
 
     {% if chapters %}
@@ -127,6 +106,7 @@
             {% endfor %}
           </tbody>
         </table>
+        <p class="nd-no-results" id="nd-chapter-no-results" hidden>Không tìm thấy chương phù hợp.</p>
       </div>
     {% else %}
       <div class="nd-chapter-empty">
@@ -226,5 +206,58 @@
     </section>
   </div>
 </div>
+
+<script>
+  (() => {
+    const chapterScrollPositions = new WeakMap();
+    const search = document.getElementById('nd-chapter-search');
+    const tbody = document.getElementById('nd-chapter-tbody');
+    const noResults = document.getElementById('nd-chapter-no-results');
+    const normalize = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi');
+
+    const applyFilter = () => {
+      if (!tbody || !noResults) return;
+      const query = normalize((search?.value || '').trim());
+      let visible = 0;
+      tbody.querySelectorAll('tr.nd-row').forEach((row) => {
+        const matches = !query || normalize(row.dataset.search || '').includes(query);
+        row.hidden = !matches;
+        if (matches) visible += 1;
+      });
+      noResults.hidden = visible !== 0;
+    };
+
+    document.body.addEventListener('htmx:beforeSwap', (event) => {
+      const target = event.detail.target;
+      if (!target || target.id !== 'nd-chapter-tbody') return;
+
+      const scrollContainer = target.closest('.nd-table-wrap');
+      if (scrollContainer) {
+        chapterScrollPositions.set(target, scrollContainer.scrollTop);
+      }
+    });
+
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      const target = event.detail.target;
+      if (!target || target.id !== 'nd-chapter-tbody') return;
+
+      applyFilter();
+
+      const scrollContainer = target.closest('.nd-table-wrap');
+      const scrollTop = chapterScrollPositions.get(target);
+      if (!scrollContainer || scrollTop === undefined) return;
+
+      scrollContainer.scrollTop = scrollTop;
+      requestAnimationFrame(() => {
+        scrollContainer.scrollTop = scrollTop;
+      });
+    });
+
+    if (search) {
+      search.addEventListener('input', applyFilter);
+      applyFilter();
+    }
+  })();
+</script>
 
 {% endblock %}

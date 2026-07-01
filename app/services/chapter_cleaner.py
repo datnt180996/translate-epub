@@ -35,75 +35,80 @@ def join_paragraphs(paragraphs: list[str]) -> str:
     return "\n\n".join(p.strip() for p in paragraphs if p and p.strip())
 
 
+def split_into_lines(text: str) -> list[str]:
+    """Split text into lines preserving empty lines (which represent paragraph
+    breaks in the original source)."""
+    if not text:
+        return []
+    return text.split("\n")
+
+
+def join_lines(lines: list[str]) -> str:
+    """Join lines back with ``\n`` separator, dropping trailing empty lines."""
+    cleaned = [ln for ln in lines]
+    while cleaned and not cleaned[-1].strip():
+        cleaned.pop()
+    return "\n".join(cleaned)
+
+
+def count_lines(text: str) -> int:
+    if not text:
+        return 0
+    return len(text.split("\n"))
+
+
+def count_non_empty_lines(text: str) -> int:
+    if not text:
+        return 0
+    return sum(1 for line in text.split("\n") if line.strip())
+
+
 def chunk_text(text: str, max_chars: int = 1800) -> list[str]:
     """Split text into chunks for translation.
 
     Strategy:
-    - Split into paragraphs first (paragraphs are natural translation units).
-    - Each chunk holds whole paragraphs until adding the next one would exceed
+    - Split into lines first (one source line = one translation line).
+    - Each chunk holds whole lines until adding the next one would exceed
       ``max_chars``.
-    - If a single paragraph exceeds ``max_chars``, split it by sentence
-      boundary (Chinese/Vietnamese punctuation), then by characters as a
-      fallback. This avoids breaking the translation flow mid-sentence.
+    - If a single line exceeds ``max_chars``, it is hard-split by characters.
+      Empty lines are preserved across chunks so paragraph breaks in the
+      source remain intact after chunks are rejoined.
     """
-    paragraphs = split_into_paragraphs(text)
+    lines = split_into_lines(text)
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
 
-    for p in paragraphs:
-        if len(p) > max_chars:
+    for line in lines:
+        line_len = len(line)
+        if line_len > max_chars:
             if current:
-                chunks.append(join_paragraphs(current))
+                chunks.append("\n".join(current))
                 current = []
                 current_len = 0
-            for piece in _split_long_paragraph(p, max_chars):
-                chunks.append(piece)
+            for i in range(0, line_len, max_chars):
+                chunks.append(line[i : i + max_chars])
             continue
 
-        if current_len + len(p) + 2 > max_chars and current:
-            chunks.append(join_paragraphs(current))
-            current = [p]
-            current_len = len(p)
+        addition = line_len + (1 if current else 0)
+        if current and current_len + addition > max_chars:
+            chunks.append("\n".join(current))
+            current = [line]
+            current_len = line_len
         else:
-            current.append(p)
-            current_len += len(p) + 2
+            current.append(line)
+            current_len += addition
 
     if current:
-        chunks.append(join_paragraphs(current))
+        chunks.append("\n".join(current))
 
-    return chunks
-
-
-_SENTENCE_END = re.compile(r"(?<=[\.。!?！？;；:：])\s*")
+    return [c for c in chunks if c is not None]
 
 
-def _split_long_paragraph(p: str, max_chars: int) -> list[str]:
-    """Split an oversized paragraph by sentence, then by characters."""
-    pieces = [s.strip() for s in _SENTENCE_END.split(p) if s and s.strip()]
-    if not pieces:
-        pieces = [p]
+def line_count_mismatch(source_text: str, translated_text: str) -> tuple[int, int]:
+    """Compare non-empty line counts between source and translation.
 
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for s in pieces:
-        if len(s) > max_chars:
-            if current:
-                chunks.append("".join(current).strip())
-                current = []
-                current_len = 0
-            for i in range(0, len(s), max_chars):
-                chunks.append(s[i : i + max_chars])
-            continue
-        if current_len + len(s) + 1 > max_chars and current:
-            chunks.append("".join(current).strip())
-            current = [s]
-            current_len = len(s)
-        else:
-            current.append(s)
-            current_len += len(s) + 1
-
-    if current:
-        chunks.append("".join(current).strip())
-    return [c for c in chunks if c]
+    Returns ``(source_count, translated_count)``. When the counts are equal
+    the translation is considered well-aligned with the source.
+    """
+    return count_non_empty_lines(source_text), count_non_empty_lines(translated_text)

@@ -17,16 +17,21 @@ TRANSLATION_SYSTEM_PROMPT = (
     "1. Giữ nguyên tên riêng theo bảng glossary đã cung cấp, không tự ý đổi cách phiên âm.\n"
     "2. Văn phong cổ trang, trang trọng, mượt mà, phù hợp thể loại tu tiên. Dùng từ Hán Việt khi thích hợp "
     "(ví dụ: tu luyện, cảnh giới, tông môn, đan dược, pháp bảo).\n"
-    "3. Giữ nguyên cấu trúc đoạn văn gốc. Mỗi đoạn văn trong bản gốc phải tương ứng đúng một đoạn văn trong bản dịch.\n"
-    "4. Không thêm bình luận, không thêm ghi chú, không dịch tiêu đề chương (tiêu đề sẽ được xử lý riêng).\n"
-    "5. Giữ nguyên thuật ngữ tu luyện, cảnh giới, chiêu thức, pháp bảo theo style guide nếu có.\n"
-    "6. Nếu gặp tên riêng chưa có trong glossary, hãy tạm phiên âm Hán Việt nhất quán và ghi chú lại trong đầu.\n"
-    "7. CHỈ trả về bản dịch tiếng Việt, không kèm theo bản gốc, không kèm theo chú thích kỹ thuật.\n"
-    "8. Bản dịch phải là tiếng Việt hoàn toàn. TUYỆT ĐỐI không để sót bất kỳ chữ Hán nào "
+    "3. GIỮ NGUYÊN CẤU TRÚC DÒNG của bản gốc. Mỗi dòng trong văn bản gốc (tách bằng \\n) phải tương ứng đúng MỘT dòng trong bản dịch. "
+    "TUYỆT ĐỐI KHÔNG gộp nhiều dòng gốc thành một dòng dài, không tách một dòng gốc thành nhiều dòng mới nếu bản gốc không có dòng trống ở đó. "
+    "Dòng trống trong bản gốc (ngắt đoạn) phải tương ứng đúng một dòng trống trong bản dịch.\n"
+    "4. Giữ nhịp câu và dấu câu phù hợp tiếng Việt (ví dụ: dấu phẩy, dấu chấm, dấu chấm hỏi, dấu chấm than) "
+    "tương ứng với dấu câu trong bản gốc. Không tự ý thêm dấu câu hoặc bỏ dấu câu so với bản gốc.\n"
+    "5. Không thêm bình luận, không thêm ghi chú, không dịch tiêu đề chương (tiêu đề sẽ được xử lý riêng).\n"
+    "6. Giữ nguyên thuật ngữ tu luyện, cảnh giới, chiêu thức, pháp bảo theo style guide nếu có.\n"
+    "7. Nếu gặp tên riêng chưa có trong glossary, hãy tạm phiên âm Hán Việt nhất quán và ghi chú lại trong đầu.\n"
+    "8. CHỈ trả về bản dịch tiếng Việt, không kèm theo bản gốc, không kèm theo chú thích kỹ thuật.\n"
+    "9. Bản dịch phải là tiếng Việt hoàn toàn. TUYỆT ĐỐI không để sót bất kỳ chữ Hán nào "
     "(kể cả lượng từ như 一头/一只/一道/一个, hoặc trợ từ cổ điển, hoặc bất kỳ ký tự nào thuộc chữ Hán giản thể/phồn thể). "
     "Nếu gặp từ/cụm chưa biết cách dịch, hãy dịch sang tiếng Việt hoặc phiên âm Hán Việt bằng chữ Latin, "
     "không được giữ nguyên chữ Hán trong bản dịch (trừ ký hiệu/đơn vị mà tác giả cố tình giữ).\n"
-    "9. Trước khi trả lời, tự kiểm tra: nếu trong bản dịch còn bất kỳ ký tự CJK nào, hãy sửa lại cho sạch rồi mới trả về."
+    "10. Trước khi trả lời, tự kiểm tra: (a) số dòng khớp với bản gốc, (b) không còn ký tự CJK nào. "
+    "Nếu chưa đạt, hãy sửa lại cho đạt rồi mới trả về."
 )
 
 
@@ -115,8 +120,20 @@ def find_cjk_spans(text: str, max_examples: int = 3) -> list[str]:
 
 CLEANUP_PROMPT = (
     "Bản dịch tiếng Việt dưới đây vẫn còn sót chữ Hán (ví dụ: 一头, 只, đạo, 个, hoặc bất kỳ CJK nào). "
-    "Hãy viết lại toàn bộ bằng tiếng Việt thuần, giữ nguyên cấu trúc đoạn, giữ nguyên tên riêng trong glossary, "
+    "Hãy viết lại toàn bộ bằng tiếng Việt thuần, giữ nguyên cấu trúc dòng (số dòng tách bằng \\n phải khớp với bản gốc đã cho), "
+    "giữ nguyên tên riêng trong glossary, "
     "và loại bỏ toàn bộ chữ Hán. Chỉ trả về bản tiếng Việt đã sửa sạch, không kèm giải thích."
+)
+
+
+LINE_ALIGNMENT_PROMPT = (
+    "Bản dịch tiếng Việt dưới đây KHÔNG giữ đúng cấu trúc dòng như bản gốc tiếng Trung. "
+    "Yêu cầu: viết lại bản dịch sao cho số dòng (tách bằng \\n) khớp đúng với bản gốc. "
+    "Mỗi dòng trong bản gốc phải tương ứng đúng một dòng trong bản dịch; "
+    "dòng trống trong bản gốc phải tương ứng đúng một dòng trống trong bản dịch. "
+    "TUYỆT ĐỐI KHÔNG thay đổi nội dung dịch, KHÔNG dịch lại, KHÔNG thêm bình luận. "
+    "CHỉ định dạng lại dòng cho khớp với bản gốc. "
+    "Chỉ trả về bản tiếng Việt đã định dạng lại, không kèm giải thích."
 )
 
 

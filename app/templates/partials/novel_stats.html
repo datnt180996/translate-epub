@@ -1,4 +1,12 @@
-<div id="nd-stats" hx-swap-oob="outerHTML" class="nd-stats">
+<div id="nd-stats"
+     {% if oob %}hx-swap-oob="outerHTML"{% endif %}
+     {% if poll_url %}
+       hx-get="{{ poll_url }}"
+       hx-trigger="every 5s, novel-chapters-refresh from:body"
+       hx-target="#nd-stats"
+       hx-swap="outerHTML"
+     {% endif %}
+     class="nd-stats">
   <div class="nd-stat">
     <div class="nd-stat-head">
       <span class="nd-stat-label">Tổng chương</span>

@@ -1,174 +1,347 @@
 {% extends "base.html" %}
+{% block body_class %}chapter-reader-page{% endblock %}
 {% block title %}{{ chapter.translated_title or chapter.title }} - {{ novel.translated_title or novel.title }}{% endblock %}
 {% block content %}
-{% if chapter.status in ['translating', 'fetching'] %}
-<script>
-  setTimeout(function() { window.location.reload(); }, 5000);
-</script>
+{% set novel_title = novel.translated_title or novel.title %}
+{% set chapter_title = chapter.translated_title or chapter.title %}
+{% if chapter.translated_text %}
+  {% set status = 'translated' %}
+{% elif chapter.status in ['translating', 'fetching', 'error', 'translated'] %}
+  {% set status = chapter.status %}
+{% elif chapter.raw_text %}
+  {% set status = 'fetched' %}
+{% else %}
+  {% set status = 'not_fetched' %}
 {% endif %}
 
-<div class="page-header">
-  <div class="muted" style="margin-bottom:8px">
-    <a href="/novels/{{ novel.id }}" style="color:var(--on-surface-muted)">{{ novel.translated_title or novel.title }}</a> &rarr; Chương {{ chapter.index }}
-  </div>
-  <div class="row between">
-    <div>
-      <h1 style="font-family:'Literata',serif; font-size:28px; font-weight:700; margin-bottom:8px">
-        {{ chapter.translated_title or chapter.title }}
-      </h1>
-      {% if chapter.translated_title and chapter.translated_title != chapter.title %}
-        <div class="muted" style="margin-bottom:6px">Gốc: {{ chapter.title }}</div>
-      {% endif %}
-      <div class="muted">
-        <span class="badge {{ chapter.status }}"><span class="dot"></span>{{ chapter.status }}</span>
-        {% if chapter.translation_provider %}
-          &middot; Provider: <code>{{ chapter.translation_provider }}</code>
-        {% endif %}
+{% if chapter.status in ['translating', 'fetching'] %}
+<script>setTimeout(() => window.location.reload(), 5000);</script>
+{% endif %}
+
+<main class="cr-reader">
+  <header class="cr-header">
+    <nav class="cr-breadcrumb" aria-label="Breadcrumb">
+      <a href="/novels/{{ novel.id }}">{{ novel_title }}</a>
+      <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
+      <span>Chương {{ chapter.index }}</span>
+    </nav>
+
+    <div class="cr-heading-row">
+      <div class="cr-heading">
+        <div class="cr-title-row">
+          <h1>{{ chapter_title }}</h1>
+          <span class="cr-status cr-status-{{ status }}">
+            {% if status == 'translated' %}Đã dịch
+            {% elif status == 'translating' %}Đang dịch
+            {% elif status == 'fetching' %}Đang tải
+            {% elif status == 'fetched' %}Đã tải
+            {% elif status == 'error' %}Có lỗi
+            {% else %}Chưa tải{% endif %}
+          </span>
+        </div>
       </div>
-    </div>
-    <div class="button-row">
-      <a href="/novels/{{ novel.id }}" class="btn secondary">
-        <span class="material-symbols-outlined" style="font-size:18px">arrow_back</span>
-        Danh sách chương
-      </a>
-    </div>
-  </div>
 
-  {% if chapter.status == 'error' and chapter.error_message %}
-    <div class="alert error" style="margin-top:16px">
-      <span class="alert-title">Lỗi</span>
-      {{ chapter.error_message }}
-    </div>
-  {% endif %}
-
-  {% if job and job.status == 'running' %}
-    {% set pct = (job.total_chunks and (job.current_chunk * 100 // job.total_chunks)) or 0 %}
-    <div class="progress-block">
-      <div class="progress-meta">
-        <span style="display:flex; align-items:center; gap:6px">
-          <span class="material-symbols-outlined" style="font-size:18px; color:var(--primary)">translate</span>
-          Đang dịch ở nền
-        </span>
-        <span>chunk {{ job.current_chunk }}/{{ job.total_chunks }}{% if job.failed_chunks %} &middot; lỗi: {{ job.failed_chunks }}{% endif %}</span>
-      </div>
-      <div class="progress-track">
-        <div class="progress-fill" style="width:{{ pct }}%"></div>
-      </div>
-    </div>
-  {% elif job and job.status == 'queued' %}
-    <div class="muted" style="margin-top:12px">Đang chuẩn bị dịch&hellip;</div>
-  {% endif %}
-
-  {% if chapter.translation_warning %}
-    <div class="alert warn" style="margin-top:16px">
-      <span class="alert-title">Cảnh báo chất lượng</span>
-      {{ chapter.translation_warning }}
-    </div>
-  {% endif %}
-</div>
-
-<div class="card">
-  <div class="row between" style="margin-bottom:18px">
-    <div class="button-row">
-      {% if not chapter.raw_text %}
-        <form method="post" action="/chapters/{{ chapter.id }}/fetch" style="display:inline">
-          <button type="submit">
-            <span class="material-symbols-outlined" style="font-size:18px">download</span>
-            Tải nội dung gốc
-          </button>
-        </form>
-      {% endif %}
-      {% if chapter.raw_text %}
-        {% if default_provider %}
-          <form method="post" action="/chapters/{{ chapter.id }}/translate" style="display:inline" onsubmit="return confirm('Dịch chương này bằng provider {{ default_provider }}? Có thể mất lâu tùy độ dài và provider.')">
-            <button type="submit">
-              <span class="material-symbols-outlined" style="font-size:18px">translate</span>
-              Dịch chương này
+      <div class="cr-primary-action">
+        {% if not chapter.raw_text %}
+          <form method="post" action="/chapters/{{ chapter.id }}/fetch">
+            <input type="hidden" name="return_to" value="/chapters/{{ chapter.id }}">
+            <button type="submit" class="cr-action-button">
+              <span class="material-symbols-outlined">download</span>
+              TẢI NỘI DUNG
             </button>
           </form>
-          <span class="muted" style="margin-left:4px">Provider: <code>{{ default_provider }}</code></span>
-        {% else %}
-          <span class="alert warn" style="margin:0; padding:6px 12px">
-            Chưa chọn provider mặc định. Mở <a href="/settings/api">Cấu hình API</a> và bấm <b>Đặt làm mặc định</b>.
-          </span>
+        {% elif status != 'translated' and default_provider %}
+          <form method="post" action="/chapters/{{ chapter.id }}/translate"
+                onsubmit="return confirm('Dịch chương này bằng provider {{ default_provider }}? Có thể mất lâu tùy độ dài và provider.')">
+            <input type="hidden" name="return_to" value="/chapters/{{ chapter.id }}">
+            <button type="submit" class="cr-action-button" {% if status == 'translating' %}disabled{% endif %}>
+              <span class="material-symbols-outlined">translate</span>
+              DỊCH
+            </button>
+          </form>
         {% endif %}
-      {% endif %}
+      </div>
     </div>
 
-    {% if chapter.raw_text or chapter.translated_text %}
-      <div class="tabs">
-        <a href="/chapters/{{ chapter.id }}?view=raw" class="{% if view == 'raw' %}active{% endif %}">Bản gốc</a>
-        <a href="/chapters/{{ chapter.id }}?view=vi" class="{% if view == 'vi' %}active{% endif %}">Bản dịch</a>
-        <a href="/chapters/{{ chapter.id }}?view=both" class="{% if view == 'both' %}active{% endif %}">Song song</a>
+    {% if chapter.status == 'error' and chapter.error_message %}
+      <div class="cr-alert cr-alert-error">
+        <strong>Lỗi</strong>
+        <span>{{ chapter.error_message }}</span>
       </div>
     {% endif %}
-  </div>
+
+    {% if chapter.raw_text and not default_provider %}
+      <div class="cr-alert cr-alert-warning">
+        <strong>Chưa có provider mặc định</strong>
+        <span>Mở <a href="/settings/api">Cấu hình API</a> và chọn một provider mặc định.</span>
+      </div>
+    {% endif %}
+
+    {% if chapter.translation_warning %}
+      <div class="cr-alert cr-alert-warning">
+        <strong>Cảnh báo chất lượng</strong>
+        <span>{{ chapter.translation_warning }}</span>
+      </div>
+    {% endif %}
+
+    {% if job and job.status == 'running' %}
+      {% set pct = (job.total_chunks and (job.current_chunk * 100 // job.total_chunks)) or 0 %}
+      <div class="cr-progress" aria-label="Tiến độ dịch">
+        <div class="cr-progress-meta">
+          <span>Đang dịch...</span>
+          <span>Chunk {{ job.current_chunk }}/{{ job.total_chunks }}{% if job.failed_chunks %} · lỗi: {{ job.failed_chunks }}{% endif %}</span>
+        </div>
+        <div class="cr-progress-track">
+          <div class="cr-progress-fill" style="width:{{ pct }}%"></div>
+        </div>
+      </div>
+    {% elif job and job.status == 'queued' %}
+      <div class="cr-progress" aria-label="Đang chuẩn bị dịch">
+        <div class="cr-progress-meta"><span>Đang chuẩn bị dịch...</span></div>
+        <div class="cr-progress-track"><div class="cr-progress-fill is-queued"></div></div>
+      </div>
+    {% endif %}
+  </header>
+
+  {% if chapter.raw_text or chapter.translated_text %}
+    <nav class="cr-tabs" aria-label="Chế độ đọc">
+      <a href="/chapters/{{ chapter.id }}?view=raw" class="{% if view == 'raw' %}active{% endif %}" {% if view == 'raw' %}aria-current="page"{% endif %}>Bản gốc</a>
+      <a href="/chapters/{{ chapter.id }}?view=vi" class="{% if view == 'vi' %}active{% endif %}" {% if view == 'vi' %}aria-current="page"{% endif %}>Bản dịch</a>
+      <a href="/chapters/{{ chapter.id }}?view=both" class="{% if view == 'both' %}active{% endif %}" {% if view == 'both' %}aria-current="page"{% endif %}>Song song</a>
+    </nav>
+  {% endif %}
+
+  <nav class="cr-chapter-nav" aria-label="Điều hướng chương">
+    {% if prev_id %}
+      <a href="/chapters/{{ prev_id }}"><span class="material-symbols-outlined">arrow_back</span>Chương trước</a>
+    {% else %}
+      <span class="cr-nav-disabled"><span class="material-symbols-outlined">arrow_back</span>Chương trước</span>
+    {% endif %}
+
+    <button type="button" class="cr-list-button" id="openChapterList">
+      <span class="material-symbols-outlined">list</span>
+      Danh sách
+    </button>
+
+    {% if next_id %}
+      <a href="/chapters/{{ next_id }}">Chương sau<span class="material-symbols-outlined">arrow_forward</span></a>
+    {% else %}
+      <span class="cr-nav-disabled">Chương sau<span class="material-symbols-outlined">arrow_forward</span></span>
+    {% endif %}
+  </nav>
 
   {% if not chapter.raw_text and not chapter.translated_text %}
-    <div class="empty">
-      <div class="empty-mark"><span class="material-symbols-outlined">article</span></div>
-      <p>Chương này chưa có nội dung. Bấm <b>Tải nội dung gốc</b> để fetch từ nguồn web.</p>
-    </div>
-  {% endif %}
-
-  {% if chapter.status == 'translating' %}
-    <div class="alert info" style="margin-top:14px">
-      <span class="alert-title">Đang xử lý</span>
-      Đang dịch ở nền. Trang sẽ tự tải lại khi xong.
-    </div>
-  {% endif %}
-
-  {% if view == 'both' %}
-    {% if chapter.raw_text or chapter.translated_text %}
-      <div class="reading-pair">
-        {% if chapter.raw_text %}
-          <div>
-            <div class="reading-label">Bản gốc &middot; 中文</div>
-            <div class="reading-area chinese">
-              {% for line in chapter.raw_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
-            </div>
+    <section class="cr-empty">
+      <span class="material-symbols-outlined">article</span>
+      <p>Chương này chưa có nội dung.</p>
+      <small>Bấm “Tải nội dung” để lấy bản gốc từ nguồn web.</small>
+    </section>
+  {% elif view == 'both' %}
+    <section class="cr-reading-card cr-reading-pair">
+      {% if chapter.raw_text %}
+        <article class="cr-column">
+          <h2>Tiếng Trung</h2>
+          <div class="cr-reading-copy cr-chinese">
+            {% for line in chapter.raw_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
           </div>
-        {% endif %}
-        {% if chapter.translated_text %}
-          <div>
-            <div class="reading-label">Bản dịch &middot; Tiếng Việt</div>
-            <div class="reading-area">
-              {% for line in chapter.translated_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
-            </div>
+        </article>
+      {% endif %}
+      {% if chapter.translated_text %}
+        <article class="cr-column">
+          <h2>Tiếng Việt</h2>
+          <div class="cr-reading-copy">
+            {% for line in chapter.translated_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
           </div>
-        {% endif %}
-      </div>
-    {% endif %}
+        </article>
+      {% endif %}
+    </section>
+  {% elif view == 'raw' and chapter.raw_text %}
+    <section class="cr-reading-card cr-reading-single">
+      <article class="cr-column">
+        <h2>Tiếng Trung</h2>
+        <div class="cr-reading-copy cr-chinese">
+          {% for line in chapter.raw_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
+        </div>
+      </article>
+    </section>
+  {% elif view == 'vi' and chapter.translated_text %}
+    <section class="cr-reading-card cr-reading-single">
+      <article class="cr-column">
+        <h2>Tiếng Việt</h2>
+        <div class="cr-reading-copy">
+          {% for line in chapter.translated_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
+        </div>
+      </article>
+    </section>
   {% else %}
-    {% if view == 'raw' and chapter.raw_text %}
-      <div class="reading-label">Bản gốc &middot; 中文</div>
-      <div class="reading-area chinese">
-        {% for line in chapter.raw_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
-      </div>
-    {% endif %}
-
-    {% if view == 'vi' and chapter.translated_text %}
-      <div class="reading-label">Bản dịch &middot; Tiếng Việt</div>
-      <div class="reading-area">
-        {% for line in chapter.translated_text.splitlines() %}{% if line.strip() %}<p>{{ line }}</p>{% endif %}{% endfor %}
-      </div>
-    {% elif view == 'vi' and not chapter.translated_text and chapter.raw_text %}
-      <div class="empty" style="padding:32px 16px">
-        <div class="empty-mark"><span class="material-symbols-outlined">translate</span></div>
-        <p>Chưa có bản dịch. Bấm <b>Dịch chương này</b> để bắt đầu.</p>
-      </div>
-    {% endif %}
+    <section class="cr-empty">
+      <span class="material-symbols-outlined">translate</span>
+      <p>Chưa có bản dịch.</p>
+      <small>Bấm “Dịch” để bắt đầu dịch chương này.</small>
+    </section>
   {% endif %}
-</div>
 
-{% if prev_id or next_id %}
-<div class="row between" style="margin-top:16px">
-  <div>
-    {% if prev_id %}<a class="btn secondary" href="/chapters/{{ prev_id }}">&larr; Chương trước</a>{% endif %}
+</main>
+
+<dialog class="cr-chapter-dialog" id="chapterListDialog" aria-labelledby="chapterListTitle">
+  <div class="cr-dialog-shell">
+    <header class="cr-dialog-header">
+      <h2 id="chapterListTitle">Danh sách chương</h2>
+      <button type="button" class="cr-dialog-close" id="closeChapterList" aria-label="Đóng danh sách chương">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </header>
+    <div class="cr-dialog-search">
+      <span class="material-symbols-outlined">search</span>
+      <input id="chapterSearch" type="search" placeholder="Tìm kiếm chương..." autocomplete="off">
+    </div>
+    <div class="cr-dialog-list" id="chapterList">
+      {% for item in chapter_items|default([]) %}
+        {% set list_chapter = item.chapter %}
+        {% set list_status = item.display_status %}
+        {% set list_title = list_chapter.translated_title or list_chapter.title %}
+        <a href="/chapters/{{ list_chapter.id }}"
+           class="cr-dialog-item {% if list_chapter.id == chapter.id %}active{% endif %}"
+           data-search="{{ list_chapter.index }} chuong {{ list_chapter.index }} chương {{ list_chapter.index }} chapter {{ list_chapter.index }} {{ list_title }} {{ list_chapter.title }}">
+          <span class="cr-dialog-index">{{ list_chapter.index }}</span>
+          <span class="cr-dialog-title">{{ list_title }}</span>
+          <span class="cr-dialog-status cr-dialog-status-{{ list_status }}">
+            {% if list_status == 'translated' %}Đã dịch
+            {% elif list_status == 'translating' %}Đang dịch
+            {% elif list_status == 'fetching' %}Đang tải
+            {% elif list_status == 'fetched' %}Đã tải
+            {% elif list_status == 'error' %}Có lỗi
+            {% else %}Chưa tải{% endif %}
+          </span>
+        </a>
+      {% endfor %}
+      <p class="cr-dialog-no-results" id="chapterListLoading" {% if chapter_items|default([]) %}hidden{% endif %}>Đang tải danh sách chương...</p>
+      <p class="cr-dialog-no-results" id="chapterNoResults" hidden>Không tìm thấy chương phù hợp.</p>
+    </div>
   </div>
-  <div>
-    {% if next_id %}<a class="btn secondary" href="/chapters/{{ next_id }}">Chương sau &rarr;</a>{% endif %}
-  </div>
-</div>
-{% endif %}
+</dialog>
+
+<script>
+  (() => {
+    const dialog = document.getElementById('chapterListDialog');
+    const openButton = document.getElementById('openChapterList');
+    const closeButton = document.getElementById('closeChapterList');
+    const search = document.getElementById('chapterSearch');
+    const list = document.getElementById('chapterList');
+    const loading = document.getElementById('chapterListLoading');
+    const noResults = document.getElementById('chapterNoResults');
+    let items = [...document.querySelectorAll('.cr-dialog-item')];
+    const normalize = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('vi');
+
+    const buildSearchText = (item) => {
+      const index = (item.querySelector('.cr-dialog-index')?.textContent || '').trim();
+      const title = (item.querySelector('.cr-dialog-title')?.textContent || '').trim();
+      const fromAttr = item.dataset.search || '';
+      const tokens = [
+        index,
+        `chuong ${index}`,
+        `chương ${index}`,
+        `chapter ${index}`,
+        title,
+        fromAttr,
+      ];
+      return normalize(tokens.filter(Boolean).join(' '));
+    };
+
+    const statusFromRow = (row) => {
+      if (row.querySelector('.nd-pill-translated')) return ['translated', 'Đã dịch'];
+      if (row.querySelector('.nd-pill-translating')) return ['translating', 'Đang dịch'];
+      if (row.querySelector('.nd-pill-fetching')) return ['fetching', 'Đang tải'];
+      if (row.querySelector('.nd-pill-fetched')) return ['fetched', 'Đã tải'];
+      if (row.querySelector('.nd-pill-error')) return ['error', 'Có lỗi'];
+      return ['not_fetched', 'Chưa tải'];
+    };
+
+    const applyFilter = () => {
+      const query = normalize((search?.value || '').trim());
+      const tokens = query ? query.split(/\s+/) : [];
+      let visible = 0;
+      items.forEach((item) => {
+        const haystack = buildSearchText(item);
+        const matches = tokens.length === 0 || tokens.every((token) => haystack.includes(token));
+        item.hidden = !matches;
+        if (matches) visible += 1;
+      });
+      if (noResults) noResults.hidden = visible !== 0;
+    };
+
+    const refreshItems = () => {
+      items = [...list.querySelectorAll('.cr-dialog-item')];
+      applyFilter();
+    };
+
+    const loadChapterItems = async () => {
+      if (items.length) return;
+      loading.hidden = false;
+      loading.textContent = 'Đang tải danh sách chương...';
+      try {
+        const response = await fetch('/novels/{{ novel.id }}/chapters');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const table = document.createElement('table');
+        table.innerHTML = `<tbody>${await response.text()}</tbody>`;
+        const fragment = document.createDocumentFragment();
+        table.querySelectorAll('tr').forEach((row) => {
+          const sourceLink = row.querySelector('.nd-title-cell a');
+          const index = row.querySelector('.nd-idx')?.textContent.trim() || '';
+          if (!sourceLink) return;
+
+          const item = document.createElement('a');
+          item.href = sourceLink.getAttribute('href');
+          item.className = 'cr-dialog-item';
+          if (item.href.endsWith('/chapters/{{ chapter.id }}')) item.classList.add('active');
+          if (row.dataset.search) item.dataset.search = row.dataset.search;
+
+          const indexNode = document.createElement('span');
+          indexNode.className = 'cr-dialog-index';
+          indexNode.textContent = index;
+          const titleNode = document.createElement('span');
+          titleNode.className = 'cr-dialog-title';
+          titleNode.textContent = sourceLink.textContent.trim();
+          const [statusKey, statusLabel] = statusFromRow(row);
+          const statusNode = document.createElement('span');
+          statusNode.className = `cr-dialog-status cr-dialog-status-${statusKey}`;
+          statusNode.textContent = statusLabel;
+          item.append(indexNode, titleNode, statusNode);
+          fragment.appendChild(item);
+        });
+        list.insertBefore(fragment, loading);
+        refreshItems();
+        loading.hidden = true;
+        if (!items.length) {
+          loading.textContent = 'Không có chương nào.';
+          loading.hidden = false;
+        }
+      } catch (error) {
+        loading.textContent = 'Không thể tải danh sách chương. Vui lòng thử lại.';
+      }
+    };
+
+    openButton.addEventListener('click', async () => {
+      dialog.showModal();
+      await loadChapterItems();
+      refreshItems();
+      const activeItem = dialog.querySelector('.cr-dialog-item.active');
+      if (activeItem && !activeItem.hidden) activeItem.scrollIntoView({ block: 'center' });
+      const value = search.value;
+      search.value = '';
+      if (value) {
+        search.value = value;
+      }
+      search.focus();
+    });
+    closeButton.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+      const rect = dialog.getBoundingClientRect();
+      const inDialog = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (!inDialog) dialog.close();
+    });
+    search.addEventListener('input', applyFilter);
+    applyFilter();
+  })();
+</script>
 {% endblock %}

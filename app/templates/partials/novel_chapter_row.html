@@ -4,16 +4,12 @@
 {% set has_raw = chapter.raw_text %}
 {% set has_translated = chapter.translated_text %}
 {% set title_text = chapter.translated_title or chapter.title %}
-{% set show_orig = chapter.translated_title and chapter.translated_title != chapter.title %}
 {% set is_active = display_status in ('fetching', 'translating') %}
 <tr id="chapter-row-{{ chapter.id }}" class="nd-row {% if display_status == 'error' %}nd-row-error{% endif %} {% if display_status in ('fetching', 'translating') %}nd-row-active{% endif %}"
-    data-search="{{ (title_text ~ ' ' ~ chapter.title)|lower }}">
+    data-search="{{ (chapter.index ~ ' chuong ' ~ chapter.index ~ ' chương ' ~ chapter.index ~ ' chapter ' ~ chapter.index ~ ' ' ~ title_text ~ ' ' ~ chapter.title)|lower }}">
   <td class="nd-idx">{{ chapter.index }}</td>
   <td class="nd-title-cell {% if display_status == 'error' %}is-error{% elif display_status in ('not_fetched', 'fetched') and not has_translated %}is-pending{% endif %}">
     <a href="/chapters/{{ chapter.id }}">{{ title_text }}</a>
-    {% if show_orig and display_status == 'translated' %}
-      <div class="nd-orig">Gốc: {{ chapter.title }}</div>
-    {% endif %}
   </td>
   <td class="nd-status-cell">
     {% if display_status == 'translated' %}
@@ -60,8 +56,8 @@
     {% elif display_status == 'fetched' and has_raw %}
       <form method="post" action="/chapters/{{ chapter.id }}/translate"
             hx-post="/chapters/{{ chapter.id }}/translate"
-            hx-target="#nd-stats"
-            hx-swap="outerHTML"
+            hx-target="body"
+            hx-swap="none"
             style="display:inline"
             onsubmit="return confirm('Dịch chương này?')">
         <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
@@ -73,8 +69,8 @@
       {% if has_raw %}
         <form method="post" action="/chapters/{{ chapter.id }}/translate"
               hx-post="/chapters/{{ chapter.id }}/translate"
-              hx-target="#nd-stats"
-              hx-swap="outerHTML"
+              hx-target="body"
+              hx-swap="none"
               style="display:inline"
               onsubmit="return confirm('Dịch lại chương này?')">
           <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
@@ -90,8 +86,8 @@
     {% elif display_status == 'not_fetched' and chapter.source_url %}
       <form method="post" action="/chapters/{{ chapter.id }}/fetch"
             hx-post="/chapters/{{ chapter.id }}/fetch"
-            hx-target="#nd-stats"
-            hx-swap="outerHTML"
+            hx-target="body"
+            hx-swap="none"
             style="display:inline">
         <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
         <button type="submit" class="nd-action" title="Tải nội dung" aria-label="Tải nội dung">

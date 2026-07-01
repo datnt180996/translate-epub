@@ -7,7 +7,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.chapter_cleaner import (
     clean_html_to_text,
     chunk_text,
+    count_non_empty_lines,
+    join_lines,
     join_paragraphs,
+    line_count_mismatch,
+    split_into_lines,
     split_into_paragraphs,
 )
 from app.services.web_importer import (
@@ -97,20 +101,51 @@ def test_chunk_long_splits():
     text = "\n\n".join(paras)
     chunks = chunk_text(text, max_chars=200)
     assert len(chunks) > 1
-    joined = "\n\n".join(chunks)
+    joined = "\n".join(chunks)
     assert "Đoạn 0." in joined
     assert "Đoạn 49." in joined
+    rejoined = "\n".join(chunks)
+    assert count_non_empty_lines(rejoined) == count_non_empty_lines(text)
 
 
-def test_chunk_oversized_paragraph_splits_by_sentence():
-    long = "少年名叫李云。 " * 200
+def test_chunk_preserves_line_count():
+    text = "\n".join(f"Dòng {i}" for i in range(20))
+    chunks = chunk_text(text, max_chars=80)
+    assert len(chunks) > 1
+    rejoined = "\n".join(chunks)
+    assert count_non_empty_lines(rejoined) == 20
+    assert rejoined.count("\n") == text.count("\n")
+
+
+def test_chunk_preserves_blank_lines_as_paragraph_breaks():
+    text = "Đoạn một.\nCâu tiếp.\n\nĐoạn hai.\nCâu cuối."
+    chunks = chunk_text(text, max_chars=1000)
+    assert len(chunks) == 1
+    assert chunks[0] == text
+    assert "\n\n" in chunks[0]
+
+
+def test_chunk_oversized_line_hard_splits():
+    long = "少年名叫李云。" * 200
     chunks = chunk_text(long, max_chars=120)
     assert len(chunks) > 1
     for c in chunks:
         assert "少年名叫李云。" in c
         assert len(c) <= 200
     joined = "".join(chunks)
-    assert joined.count("少年名叫李云。") >= 198
+    assert joined == long
+    assert joined.count("少年名叫李云。") == 200
+
+
+def test_line_count_mismatch_helper():
+    src = "a\nb\n\nc"
+    tgt = "A B C"
+    src_count, tgt_count = line_count_mismatch(src, tgt)
+    assert src_count == 3
+    assert tgt_count == 1
+    assert count_non_empty_lines(src) == 3
+    assert split_into_lines(src) == ["a", "b", "", "c"]
+    assert join_lines(["A", "B", "", "C", ""]) == "A\nB\n\nC"
 
 
 def test_parse_69shuba_index_extracts_title_and_chapters():
@@ -182,7 +217,10 @@ if __name__ == "__main__":
         test_split_and_join_roundtrip,
         test_chunk_short,
         test_chunk_long_splits,
-        test_chunk_oversized_paragraph_splits_by_sentence,
+        test_chunk_preserves_line_count,
+        test_chunk_preserves_blank_lines_as_paragraph_breaks,
+        test_chunk_oversized_line_hard_splits,
+        test_line_count_mismatch_helper,
         test_parse_69shuba_index_extracts_title_and_chapters,
         test_parse_chapter_text_extracts_content,
         test_parse_generic_index_fallback,

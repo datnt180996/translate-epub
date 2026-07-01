@@ -1,621 +1,431 @@
-# Ebook Translator - Project Spec
+# Ebook Translator — Project Spec
 
-## 1. Muc Tieu Du An
+> Cập nhật theo code trong working tree ngày 2026-07-01. File này mô tả hành vi đang được triển khai, không phải roadmap.
 
-Ebook Translator la mot web app local dung de import va dich truyen tieng Trung sang tieng Viet, tap trung vao the loai tien hiep, huyen huyen, tu chan.
+## 1. Mục tiêu sản phẩm
 
-Nguoi dung chinh la non-code user. App can uu tien thao tac qua giao dien web, han che yeu cau nguoi dung sua code thu cong.
+Ebook Translator (UI dùng tên **Dịch Hiệp**) là web app local để import truyện tiếng Trung, lưu nội dung vào SQLite và dịch sang tiếng Việt bằng LLM. Ứng dụng tập trung vào truyện tiên hiệp, huyền huyễn và tu chân, dành cho người dùng không cần biết lập trình.
 
-## 2. Tinh Nang Hien Co
+Nguyên tắc sản phẩm:
 
-App hien ho tro:
+- Thao tác chính phải thực hiện được trên UI.
+- Không xóa dữ liệu truyện, chương, glossary hoặc bản dịch nếu người dùng không chủ động yêu cầu.
+- Tác vụ dịch chạy nền và có trạng thái tiến độ.
+- Lỗi/cảnh báo cần hiển thị bằng tiếng Việt.
+- Đây là local tool: hiện không có authentication, phân quyền hoặc CSRF protection.
 
-- Import truyen tu URL web.
-- Ho tro dac biet cho `69shuba.com`.
-- Co parser generic cho site khac co link chuong dang `.html`.
-- Import truyen tu file `.epub`.
-- Tu tao danh sach chuong.
-- Sap xep chuong theo thu tu hop ly, gom `序章`, `第1章`, `第一章`, `Chapter 1`, `番外`, `后记`, `外传`, `终章`, `附录`.
-- Fetch noi dung goc tung chuong tu web. Sau khi fetch thanh cong, UI mac dinh mo `view=raw` de xem ban goc truoc.
-- Fetch toan bo chuong web.
-- Dich chuong bang provider AI.
-- Dich nen bang thread de trinh duyet khong bi treo.
-- Theo doi tien trinh dich theo chunk (progress bar) thong qua bang `TranslationJob` trong DB.
-- Luu ban goc va ban dich trong SQLite.
-- Luu loi dich (`error_message`) va canh bao chat luong (`translation_warning`) rieng, khong lan vao ban dich.
-- Quan ly glossary theo tung truyen.
-- Quan ly style guide theo tung truyen.
-- Tu extract glossary sau khi dich.
-- Tu tom tat chuong sau khi dich.
-- Dung summary cac chuong truoc de giu mach dich.
-- Xem ban goc, ban dich, hoac ca hai.
-- Cau hinh API key cho provider tren web (khong can sua `.env`).
-- Kiem tra ket noi provider bang nut "Kiem tra ket noi" (ping nhe).
+## 2. Tính năng hiện có
 
-## 3. Tech Stack
+- Import truyện từ URL; hỗ trợ riêng `69shuba.com` và có parser generic cho link `.html`.
+- Import file `.epub`, đọc metadata và các document trong spine.
+- Lấy title, author, description và cover khi nguồn cung cấp được.
+- Tự dịch title/author lúc import nếu đã cấu hình và chọn provider mặc định; lỗi dịch metadata chỉ được log, không làm hỏng import.
+- Sắp xếp chương theo số Ả Rập/số Hán, chương mở đầu và nhóm ngoại truyện/hậu ký/phụ lục.
+- Fetch nội dung gốc từng chương; có route fetch toàn bộ nhưng chưa có nút tương ứng trên UI hiện tại.
+- Dịch từng chương trong background daemon thread, chia chunk và dịch song song.
+- Lưu raw text, translated text, title dịch, provider, lỗi và cảnh báo chất lượng trong SQLite.
+- Theo dõi tiến độ chunk bằng `TranslationJob`.
+- Quản lý style guide và glossary theo từng truyện; glossary hiện hỗ trợ thêm và xóa, chưa hỗ trợ sửa.
+- Tự trích xuất glossary và tóm tắt chương sau khi dịch nếu cấu hình cho phép.
+- Dùng tối đa 5 summary gần nhất (theo ID tạo) làm context cho chương tiếp theo.
+- Cấu hình Minimax, OpenRouter và DeepSeek trên web; có lưu/test/xóa và chọn provider mặc định.
+- Trang chi tiết truyện cập nhật bảng chương và thống kê mỗi 5 giây bằng HTMX.
+- Reader hỗ trợ `Bản gốc`, `Bản dịch`, `Song song`, điều hướng trước/sau và modal danh sách chương có tìm kiếm.
+
+Chưa có:
+
+- Export TXT/DOCX/EPUB.
+- Dịch hàng loạt nhiều chương.
+- Resume job sau khi restart app.
+- Editor sửa bản dịch trực tiếp.
+- Authentication hoặc triển khai multi-user.
+
+## 3. Tech stack và runtime
 
 Backend:
 
-- Python
-- FastAPI
-- SQLModel
-- SQLite
-- Jinja2 template
-- httpx
-- curl_cffi
-- BeautifulSoup
-- ebooklib
-- optional Playwright fallback
+- Python, FastAPI, SQLModel, SQLite, Jinja2.
+- `httpx`, `curl_cffi`, BeautifulSoup/lxml cho web import.
+- `ebooklib` cho EPUB.
+- `playwright` có trong `requirements.txt`; chỉ dùng khi caller bật fallback và máy đã cài Chromium tương ứng.
 
 Frontend:
 
-- Server-rendered HTML bang Jinja2.
-- CSS inline trong `app/templates/base.html`.
-- Khong co build frontend.
-- Co import htmx CDN nhung hien chua dung nhieu.
+- Server-rendered Jinja2, không có frontend build pipeline.
+- CSS nằm trực tiếp trong `app/templates/base.html`.
+- HTMX 1.9.10 và Google Fonts/Material Symbols được tải từ CDN.
+- JavaScript thuần dùng cho modal reader, tìm kiếm chapter, toggle API key và giữ scroll khi HTMX swap.
 
-Database:
+Runtime:
 
-- SQLite mac dinh: `ebook_translator.db`.
-- Cau hinh qua `DATABASE_URL`.
+- SQLite mặc định: `sqlite:///./ebook_translator.db`.
+- FastAPI startup event gọi `init_db()` để tạo bảng và áp dụng schema patch.
+- Session flash dùng cookie ký bởi `APP_SECRET`; nếu không đặt sẽ dùng chuỗi development mặc định.
+- `app/static` được tạo ngay khi import `app.main`, sau đó mount tại `/static`.
 
-## 4. Cau Truc Thu Muc
+## 4. Cấu trúc dự án
 
 ```text
 app/
-  main.py
-  config.py
-  db.py
-  models.py
+  main.py                         # FastAPI app, route, flash và template context
+  config.py                       # Pydantic settings từ .env
+  db.py                           # Engine, create_all, schema patch SQLite
+  models.py                       # SQLModel tables
   services/
-    chapter_cleaner.py
-    chapter_order.py
-    epub_importer.py
-    web_importer.py
-    web_service.py
-    glossary_service.py
-    runner.py
-    provider_settings_service.py
-    translation_jobs.py
+    chapter_cleaner.py            # Clean/split/join/chunk text
+    chapter_order.py              # Sort chapter
+    epub_importer.py              # Import EPUB
+    web_importer.py               # HTTP fallback và parser HTML
+    web_service.py                # Persist novel/chapter web
+    glossary_service.py           # Context và pipeline dịch
+    runner.py                     # Background thread registry
+    translation_jobs.py           # Persist progress job
+    provider_settings_service.py  # Config provider + default provider
     providers/
-      base.py
-      factory.py
-      minimax.py
+      base.py                     # Protocol và TranslationContext
+      factory.py                  # Build/cache/resolve provider
+      minimax.py                  # OpenAI-compatible providers và prompt
   templates/
     base.html
     index.html
     novel.html
     chapter.html
     api_settings.html
+    partials/
+      novel_chapter_row.html
+      novel_stats.html
 
 tests/
   test_parsers.py
+  test_chapter_ui.py
 
+DemoUI/                         # Tài liệu/demo thiết kế, không tham gia runtime
+PROJECT_SPEC.md
 README.md
 requirements.txt
 .env.example
 ```
 
-Luu y: `app/static` duoc tu tao khi app khoi dong neu chua ton tai (de tranh loi Starlette khi mount).
-
-## 5. Cac File Quan Trong
-
-### `app/main.py`
-
-Entry point chinh cua web app.
-
-Chua:
-
-- Khoi tao FastAPI app.
-- Mount static folder (tu tao `app/static` neu chua co).
-- Session middleware.
-- Routes import truyen.
-- Routes xem truyen/chuong.
-- Routes fetch raw chapter.
-- Routes dich chuong.
-- Routes glossary/style guide.
-- Routes quan ly provider tren web.
-
-Routes chinh:
-
-- `GET /`
-- `POST /novels/import-url`
-- `POST /novels/import-epub`
-- `POST /novels/{novel_id}/delete`
-- `GET /novels/{novel_id}`
-- `POST /novels/{novel_id}/style`
-- `POST /novels/{novel_id}/glossary`
-- `POST /novels/{novel_id}/fetch-all`
-- `GET /chapters/{chapter_id}`
-- `POST /chapters/{chapter_id}/fetch` (thanh cong redirect ve `?view=raw`)
-- `POST /chapters/{chapter_id}/translate`
-- `GET /settings/api`
-- `POST /settings/api/{provider}/save`
-- `POST /settings/api/{provider}/clear`
-- `POST /settings/api/{provider}/test`
-
-### `app/models.py`
-
-Chua database models:
-
-- `Novel`: truyen.
-- `Chapter`: chuong (co them `error_message`, `translation_warning`).
-- `GlossaryTerm`: thuat ngu dich co dinh.
-- `ChapterSummary`: tom tat chuong.
-- `StyleGuide`: style guide rieng cua tung truyen.
-- `ProviderSetting`: cau hinh provider luu trong DB (key, base URL, model, group_id).
-- `TranslationJob`: job dich nen (chapter_id, novel_id, provider, status, total/done/failed/current chunks, error_message).
-
-### `app/config.py`
-
-Doc cau hinh tu `.env`.
-
-Bien cau hinh quan trong:
+## 5. Cấu hình
 
-- `DATABASE_URL`
-- `APP_HOST`
-- `APP_PORT`
-- `MINIMAX_API_KEY`
-- `MINIMAX_GROUP_ID`
-- `MINIMAX_MODEL`
-- `MINIMAX_BASE_URL`
-- `DEEPSEEK_API_KEY`
-- `DEEPSEEK_MODEL`
-- `DEEPSEEK_BASE_URL`
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL` (mac dinh `deepseek/deepseek-v4-pro`)
-- `OPENROUTER_BASE_URL` (mac dinh `https://openrouter.ai/api/v1`)
-- `REQUEST_TIMEOUT`
-- `USE_CURL_CFFI_FALLBACK`
-- `USE_PLAYWRIGHT_FALLBACK`
-- `TRANSLATION_MAX_CHUNK_CHARS`
-- `TRANSLATION_CONCURRENCY`
-- `TRANSLATION_TIMEOUT`
-- `TRANSLATION_MAX_RETRIES`
-- `AUTO_EXTRACT_GLOSSARY`
-- `AUTO_SUMMARIZE_CHAPTER`
+`app/config.py` đọc `.env` bằng `pydantic-settings` và bỏ qua biến dư.
 
-Cau hinh provider co the duoc ghi de tren web (luu SQLite) qua trang `Cấu hình API`. Khi do gia tri trong DB se duoc uu tien, neu khong co moi fallback sang `.env`.
+| Biến | Mặc định | Trạng thái sử dụng |
+|---|---|---|
+| `APP_NAME` | `ebook-translator` | Có trong settings, chưa được dùng để đặt title app |
+| `DATABASE_URL` | `sqlite:///./ebook_translator.db` | Đang dùng |
+| `APP_HOST` | `127.0.0.1` | Dùng bởi `python -m app.main` |
+| `APP_PORT` | `8000` | Dùng bởi `python -m app.main` |
+| `MINIMAX_API_KEY` | rỗng | Fallback nếu DB không có row Minimax |
+| `MINIMAX_GROUP_ID` | rỗng | Header `X-Group-Id` khi có giá trị |
+| `MINIMAX_MODEL` | `MiniMax-M2.7-highspeed` | Đang dùng |
+| `MINIMAX_BASE_URL` | `https://api.minimax.io/v1` | Đang dùng |
+| `OPENROUTER_API_KEY` | rỗng | Fallback nếu DB không có row OpenRouter |
+| `OPENROUTER_MODEL` | `deepseek/deepseek-v4-pro` | Đang dùng |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Đang dùng |
+| `DEEPSEEK_API_KEY` | rỗng | Fallback nếu DB không có row DeepSeek |
+| `DEEPSEEK_MODEL` | `deepseek-chat` | Đang dùng |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | Đang dùng |
+| `REQUEST_TIMEOUT` | `30` | Hiện chưa được route/service nối vào; service đang dùng default `30` riêng |
+| `USE_CURL_CFFI_FALLBACK` | `true` | Có trong settings nhưng hiện chưa được route import đọc |
+| `USE_PLAYWRIGHT_FALLBACK` | `false` | Có trong settings nhưng hiện chưa được route import đọc |
+| `TRANSLATION_MAX_CHUNK_CHARS` | `5000` | Đang dùng |
+| `TRANSLATION_CONCURRENCY` | `2` | Đang dùng, bị chặn trong khoảng `1..số chunk` |
+| `TRANSLATION_TIMEOUT` | `600` giây | Timeout mỗi API call |
+| `TRANSLATION_MAX_RETRIES` | `2` | Retry timeout/429/500/502/503/504 với exponential backoff |
+| `AUTO_EXTRACT_GLOSSARY` | `true` | Đang dùng |
+| `AUTO_SUMMARIZE_CHAPTER` | `true` | Đang dùng |
+
+Lưu ý hiện trạng:
 
-### `app/services/web_importer.py`
+- `.env.example` chưa liệt kê ba biến OpenRouter dù `config.py` hỗ trợ chúng.
+- Một row `ProviderSetting` trong DB ghi đè toàn bộ cấu hình `.env` của provider đó. Xóa row mới quay lại fallback `.env`.
+- Form save hiện gửi API key rỗng nếu người dùng không nhập lại; service sẽ lưu chuỗi rỗng thay vì giữ key cũ.
 
-Phu trach fetch va parse web.
+## 6. Data model và migration
 
-Chuc nang chinh:
+### `Novel`
 
-- Fetch HTML bang `httpx`.
-- Fallback bang `curl_cffi`.
-- Optional fallback bang Playwright.
-- Decode HTML tu nhieu encoding nhu `utf-8`, `gb18030`, `gbk`, `gb2312`, `big5`.
-- Parse muc luc `69shuba`.
-- Parse chuong.
-- Parser generic cho site khac.
+- `id`, `title`, `translated_title`, `author`, `translated_author`.
+- `source_type`, `source_url`, `description`, `cover_url`, `created_at`.
 
-Function quan trong:
+### `Chapter`
 
-- `smart_fetch`
-- `parse_69shuba_index`
-- `parse_generic_index`
-- `parse_chapter_text`
-- `import_from_url`
-- `fetch_chapter_text`
-
-### `app/services/web_service.py`
-
-Noi parser web voi database.
-
-Chuc nang:
-
-- Import novel tu URL.
-- Tao `Novel`.
-- Tao danh sach `Chapter`.
-- Fetch raw text cho chapter.
-
-### `app/services/epub_importer.py`
-
-Import EPUB.
-
-Chuc nang:
-
-- Doc metadata title/author/description.
-- Doc spine documents.
-- Extract text tu HTML trong EPUB.
-- Tao `Novel`.
-- Tao `Chapter`.
-- Sap xep chuong.
-
-### `app/services/chapter_cleaner.py`
-
-Xu ly text.
-
-Chuc nang:
-
-- Clean HTML thanh text.
-- Loai bo `script`, `style`, `nav`, `header`, `footer`, v.v.
-- Split paragraph.
-- Join paragraph.
-- Chunk text de gui API dich. Chunk theo doan van, neu doan qua dai se cat theo dau cau (`。.!?！？;；:：`), neu cau van qua dai thi fallback cat theo ky tu.
-
-### `app/services/chapter_order.py`
-
-Sap xep chuong.
-
-Chuc nang:
-
-- Nhan title chuong.
-- Tinh sort key.
-- Ho tro so chuong Trung Quoc nhu `第一章`, `第十章`, `第二百章`.
-- Dua chuong mo dau len truoc.
-- Dua ngoai truyen/hau ky/phu luc ve cuoi.
-
-### `app/services/glossary_service.py`
-
-Logic dich chinh.
-
-Chuc nang:
-
-- Lay glossary.
-- Lay style guide.
-- Lay summary chuong truoc.
-- Build translation context.
-- Chia chuong thanh chunks (qua `chapter_cleaner.chunk_text`).
-- Goi provider dich.
-- Dich song song bang `ThreadPoolExecutor` (su dung `as_completed` de cap nhat progress theo thoi gian thuc).
-- Luu ban dich vao `Chapter.translated_text`. **Canh bao chat luong (sot chu Han) duoc luu rieng vao `Chapter.translation_warning`**, khong append vao `translated_text`.
-- Cap nhat `TranslationJob` qua `translation_jobs` de theo doi tien trinh.
-- Tu extract glossary.
-- Tu summarize chapter.
-
-### `app/services/runner.py`
-
-Chay dich nen.
-
-Chuc nang:
-
-- Theo doi chapter nao dang dich (in-memory thread registry).
-- Tao background thread.
-- Luu loi dich gan nhat vao `Chapter.error_message` trong DB de UI hien thi lai sau khi reload.
-- Tranh dich trung cung mot chapter.
-- Reset va cap nhat `TranslationJob` truoc/sau khi dich.
-
-### `app/services/provider_settings_service.py`
-
-Quan ly cau hinh provider luu trong DB.
-
-Chuc nang:
-
-- `SUPPORTED_PROVIDERS`: tuple cac provider ho tro (`minimax`, `openrouter`, `deepseek`).
-- `list_provider_settings(session)`: liet ke trang thai provider cho trang `Cấu hình API`.
-- `get_provider_config(session, provider)`: doc cau hinh DB, fallback `.env`.
-- `save_provider_setting(session, provider, ...)`: luu key/base_url/model/group_id.
-- `clear_provider_setting(session, provider)`: xoa khoi DB.
-- `mask_key(value)`: mask key khi hien thi (dung `xxx...yyy`).
-
-### `app/services/translation_jobs.py`
-
-Quan ly job dich ben vung trong DB.
-
-Ham:
-
-- `get_or_create`, `reset`: tao/reset job theo `chapter_id`.
-- `mark_running`: cap nhat `total_chunks`, status `running`.
-- `increment_progress`: cap nhat `done_chunks` / `failed_chunks` / `current_chunk`.
-- `mark_done`: status `done`.
-- `mark_error`: status `error` kem `error_message`.
-
-### `app/services/providers/minimax.py`
-
-Provider dich OpenAI-compatible.
-
-Hien co:
-
-- `MinimaxProvider`
-- `DeepSeekProvider`
-- `OpenRouterProvider`
-
-Ca ba dung chung base class `OpenAICompatProvider`.
-
-Minimax endpoint:
-
-- `/text/chatcompletion_v2`
-
-DeepSeek endpoint:
-
-- `/chat/completions`
-
-OpenRouter endpoint:
-
-- `/chat/completions` (mac dinh base URL `https://openrouter.ai/api/v1`)
-
-File nay cung chua prompt chinh:
-
-- `TRANSLATION_SYSTEM_PROMPT`
-- `TERM_EXTRACTION_PROMPT`
-- `SUMMARY_PROMPT`
-- `CLEANUP_PROMPT` (prompt phu de sua ban dich con sot chu Han)
-
-Helper:
-
-- `contains_cjk(text)`, `find_cjk_spans(text)` de phat hien ky tu CJK con sot trong ban dich.
-
-Lop `OpenAICompatProvider` cung cap:
-
-- `translate(text, context)`: dich mot chunk.
-- `extract_terms(...)`, `summarize_chapter(...)`: phu trinh.
-- `ping()`: test ket noi nhe.
-
-## 6. Luong Import URL
-
-1. User nhap URL o trang chu.
-2. `POST /novels/import-url`.
-3. `main.py` goi `import_web_novel`.
-4. `web_service.py` goi `import_from_url`.
-5. `web_importer.py` fetch HTML.
-6. Neu URL la `69shuba`, dung `parse_69shuba_index`.
-7. Neu khong, dung `parse_generic_index`.
-8. Tao `Novel`.
-9. Sort chapters.
-10. Tao cac `Chapter` voi status `pending`.
-11. Redirect ve trang chi tiet truyen.
-
-## 7. Luong Import EPUB
-
-1. User upload file `.epub`.
-2. `POST /novels/import-epub`.
-3. `main.py` doc bytes.
-4. Goi `import_epub_bytes`.
-5. EPUB duoc ghi tam ra temp file.
-6. `ebooklib` doc EPUB.
-7. Extract metadata.
-8. Extract spine document text.
-9. Sort chapters.
-10. Tao `Novel`.
-11. Tao `Chapter` voi `raw_text` san va status `fetched`.
-
-## 8. Luong Fetch Chapter
-
-1. User mo chapter.
-2. Neu chua co `raw_text`, UI hien nut tai noi dung goc.
-3. `POST /chapters/{chapter_id}/fetch`.
-4. `main.py` goi `fetch_chapter_raw`.
-5. Status chuyen sang `fetching`.
-6. Fetch HTML tu `chapter.source_url`.
-7. Parse noi dung chuong.
-8. Luu vao `chapter.raw_text`.
-9. Status thanh `fetched`.
-10. Redirect ve `/chapters/{id}?view=raw` de mac dinh mo ban goc.
-
-## 9. Luong Dich Chapter
-
-1. User bam "Dich chuong nay".
-2. `POST /chapters/{chapter_id}/translate`.
-3. Neu chua co raw text, bao loi.
-4. Neu dang dich, bao loi.
-5. Set status `translating`.
-6. Reset `TranslationJob` trong DB.
-7. `runner.py` tao background thread.
-8. Trong thread, goi `translate_chapter`.
-9. `translate_chapter` build context gom glossary, style guide, summaries gan nhat, chapter title.
-10. `TranslationJob` duoc cap nhat `total_chunks`, status `running`.
-11. Raw text duoc chia chunk theo doan/cau.
-12. Provider dich tung chunk. **Sau moi chunk xong**, `TranslationJob` duoc cap nhat `done_chunks`/`failed_chunks`.
-13. Neu phat hien CJK con sot trong ban dich, goi `cleanup_translation` (prompt `CLEANUP_PROMPT`) mot lan de sua.
-14. Neu van con CJK, **khong fail ca chuong**. Chunk do duoc dem lai vao `failed_chunks` va gom warning luu vao `chapter.translation_warning`.
-15. Ghep chunks thanh ban dich, luu `translated_text`. Status thanh `translated`. `TranslationJob` thanh `done`.
-16. Neu co loi (provider raise...), `chapter.status=error`, `error_message` duoc luu vao DB, `TranslationJob` cung chuyen `error`.
-17. Optional extract glossary.
-18. Optional summarize chapter.
-19. UI hien progress bar theo chunk khi dang dich. Khi xong, alert vang se hien canh bao chat luong (neu co), alert do se hien loi (neu co). UI co the tu reload.
-
-## 10. Trang Thai Chapter
-
-Status dang dung:
-
-- `pending`: moi tao, chua fetch.
-- `fetching`: dang fetch raw text.
-- `fetched`: da co raw text.
-- `translating`: dang dich nen.
-- `translated`: da dich xong.
-- `error`: loi fetch hoac dich.
-
-Ngoai ra, moi chapter co mot `TranslationJob` lien ket voi cac truong:
-
-- `status`: `queued` | `running` | `done` | `error`.
-- `total_chunks`, `done_chunks`, `failed_chunks`, `current_chunk`: de UI hien progress.
-- `error_message`: ly do loi neu `status=error`.
-
-## 11. Provider Dich
-
-Provider hien co:
+- Liên kết: `novel_id`; thứ tự: `index`.
+- Metadata: `title`, `translated_title`, `source_url`.
+- Nội dung: `raw_text`, `translated_text`.
+- Dịch: `translation_provider`, `status`, `error_message`, `translation_warning`.
+- Thời gian: `created_at`, `updated_at`.
+
+### Context dịch
+
+- `GlossaryTerm`: source/target/category/notes theo `novel_id`.
+- `ChapterSummary`: summary theo `novel_id` và `chapter_id`.
+- `StyleGuide`: một row unique theo `novel_id`.
+
+### Provider và app setting
+
+- `ProviderSetting`: API key, base URL, model, group ID theo provider.
+- `AppSetting`: key/value; hiện dùng key `default_provider`.
+
+### `TranslationJob`
+
+- Unique theo `chapter_id`, có `novel_id`, `provider`.
+- `status`: `queued | running | done | error`.
+- `total_chunks`, `done_chunks`, `failed_chunks`, `current_chunk`.
+- `error_message`, `started_at`, `updated_at`.
+
+`init_db()` gọi `create_all()` rồi `_apply_schema_patches()`. Schema patch chỉ chạy cho SQLite và thêm các cột còn thiếu bằng `ALTER TABLE`; không đổi type/constraint, không backfill và không thay Alembic. Patch hiện bao phủ các cột mới của `novel`, `chapter`, `translationjob` và `appsetting`.
+
+## 7. HTTP routes thực tế
+
+### Trang chủ và import
+
+- `GET /`: danh sách novel, số chapter, trạng thái tổng hợp, cảnh báo provider.
+- `POST /novels/import-url`: import URL, flash lỗi rồi redirect nếu thất bại.
+- `POST /novels/import-epub`: đọc upload vào memory, từ chối file rỗng, import rồi redirect.
+- `POST /novels/{novel_id}/delete`: xóa novel, chapter, glossary, summary và style guide.
+
+### Novel detail và HTMX partial
+
+- `GET /novels/{novel_id}`: hero, thống kê, bảng chapter, style guide, glossary.
+- `GET /novels/{novel_id}/chapters`: trả các `<tr>` chapter; bảng gọi khi load, mỗi 5 giây và khi nhận event `novel-chapters-refresh`.
+- `GET /novels/{novel_id}/chapters/{chapter_id}/row`: trả một row bọc trong table và stats OOB; hiện không được flow chính gọi trực tiếp.
+- `GET /novels/{novel_id}/stats`: partial stats, tự poll mỗi 5 giây.
+- `POST /novels/{novel_id}/style`: tạo/cập nhật style guide.
+- `POST /novels/{novel_id}/glossary`: thêm term nếu source và target không rỗng.
+- `POST /novels/{novel_id}/glossary/{term_id}/delete`: xóa term theo ID.
+- `POST /novels/{novel_id}/fetch-all`: fetch tuần tự mọi chapter có URL và chưa có raw text; nuốt lỗi từng chapter.
+
+### Chapter reader
+
+- `GET /chapters/{chapter_id}?view=vi|raw|both`: mặc định `vi`; route không validate giá trị `view` ngoài ba giá trị trên.
+- `POST /chapters/{chapter_id}/fetch`: fetch đồng bộ; từ reader redirect về `?view=raw`, từ novel detail trả response rỗng kèm HTMX event.
+- `POST /chapters/{chapter_id}/translate`: kiểm tra raw/default provider/task đang chạy, đặt `translating`, khởi động background thread; từ reader redirect về `?view=vi`, từ novel detail phát HTMX event.
+
+Hai POST chapter chấp nhận `return_to`. `_safe_return_to()` chỉ cho phép path nội bộ của đúng novel/chapter để tránh open redirect.
+
+### Provider settings
+
+- `GET /settings/api`.
+- `POST /settings/api/{provider}/save`.
+- `POST /settings/api/{provider}/clear`.
+- `POST /settings/api/{provider}/test`.
+- `POST /settings/api/{provider}/set-default`.
+
+## 8. Luồng import
+
+### Web
+
+1. Route gọi `import_web_novel(session, url)` với default service hiện tại.
+2. `smart_fetch()` thử `httpx`, sau đó `curl_cffi` nếu bật, rồi Playwright nếu bật.
+3. HTML được decode theo HTTP charset, meta charset, rồi thử `utf-8`, `gb18030`, `gbk`, `gb2312`, `big5`, `latin-1`.
+4. Với 69shuba, parser đọc trang hiện tại; URL `/book/{id}.htm` được đổi sang catalog `/book/{id}/` và fetch thêm khi cần. Dữ liệu tốt hơn được merge vào kết quả.
+5. Site khác dùng generic parser: title từ `<title>`, author/cover theo selector, mọi anchor `.html` được xem là chapter.
+6. Tạo `Novel`; nếu có default provider thì dịch title và author đồng bộ trong request import.
+7. Sort chapter và tạo `Chapter(status="pending")`.
+
+`parse_chapter_text()` ưu tiên các container content phổ biến; nếu không thấy sẽ chọn `div/section/article` có text dài nhất, clean HTML và bỏ một số dòng navigation.
+
+### EPUB
+
+1. Upload được đọc toàn bộ vào memory rồi ghi ra temporary `.epub`.
+2. `ebooklib` đọc title/creator/description và document trong spine.
+3. Title chapter lấy lần lượt từ `h1/h2/h3`, `<title>`, TOC hoặc fallback `Chapter N`.
+4. Document có ít hơn 20 ký tự bị bỏ.
+5. Novel title/author có thể được dịch đồng bộ bằng default provider.
+6. Chapter được sort và lưu sẵn `raw_text`, `status="fetched"`.
+7. Temporary file được xóa trong `finally`.
+
+## 9. Luồng fetch và dịch chapter
+
+### Fetch raw
+
+1. `fetch_chapter_raw()` đặt `status="fetching"` và commit.
+2. Fetch URL, parse text và cập nhật URL cuối sau redirect.
+3. Thành công: lưu `raw_text`, đặt `fetched`.
+4. Thất bại: đặt `error` rồi raise để route tạo flash.
+5. Nếu chapter không có `source_url`, service trả chapter không thay đổi.
+
+### Dịch nền
+
+1. Route yêu cầu chapter có `raw_text`, không có thread sống cho cùng chapter và có default provider hợp lệ.
+2. Route đặt `Chapter.status="translating"`, lưu provider rồi gọi `start_translation()`.
+3. Runner đăng ký daemon thread trong dictionary in-memory.
+4. Worker reset `TranslationJob`, mở session mới và gọi `translate_chapter()`.
+5. Context gồm toàn bộ glossary, style guide, 5 summary gần nhất và title gốc của chapter.
+6. Raw text được chia theo paragraph; paragraph dài tách theo dấu câu rồi mới cắt theo ký tự.
+7. Các chunk chạy bằng `ThreadPoolExecutor`; kết quả được ghép lại theo index gốc, không theo thứ tự hoàn thành.
+8. Mỗi chunk thành công tăng `done_chunks`; chunk vẫn còn CJK sau cleanup tăng `failed_chunks`. `current_chunk = done + failed`.
+9. Nếu output còn CJK, provider gọi lại `_chat()` với `CLEANUP_PROMPT` một lần. CJK còn lại tạo `translation_warning`, không tự fail cả chapter.
+10. Output rỗng hoặc exception làm chapter/job chuyển `error`.
+11. Thành công: lưu `translated_text`, `translation_provider`, `status="translated"`, job `done`.
+12. Nếu thiếu `translated_title`, provider dịch title sau khi phần nội dung hoàn tất.
+13. Glossary extraction và summary chạy tiếp trong cùng worker; exception của hai bước này bị bỏ qua.
+14. Runner lưu exception cuối vào `Chapter.error_message`, `TranslationJob.error_message` và cache `_last_errors`, sau đó gỡ task khỏi registry.
+
+Job được đánh dấu `done` trước khi extract glossary/summary hoàn tất. App restart sẽ mất registry thread; không có resume/recovery cho trạng thái DB còn dở.
+
+## 10. Provider
+
+Provider hỗ trợ theo thứ tự hiển thị:
 
 - `minimax`
-- `openrouter` (mac dinh model `deepseek/deepseek-v4-pro`, base URL `https://openrouter.ai/api/v1`)
+- `openrouter`
 - `deepseek`
 
-Provider duoc liet ke trong UI neu co API key (uu tien trong DB, fallback `.env`).
+Cả ba kế thừa `OpenAICompatProvider`:
 
-Cau hinh provider tren web: vao `Cấu hình API` tren topbar. Moi provider co card rieng voi:
+- Minimax dùng `{base_url}/text/chatcompletion_v2` khi base URL chứa `minimax`, kèm `reply_constraints` và optional `X-Group-Id`.
+- OpenRouter/DeepSeek dùng `{base_url}/chat/completions`.
+- Parser response hỗ trợ `choices[].message.content`, delta content, Minimax legacy `reply` và top-level `content`.
+- `ping()` vẫn là một chat completion nhỏ yêu cầu trả `OK`, không phải endpoint health riêng.
+- Provider object được cache theo tên; save/clear/default route gọi `invalidate_cache()` phù hợp.
 
-- API key (mat khi hien thi - mask dang `sk-...abcd`).
-- Base URL.
-- Model.
-- Group ID (chi Minimax).
-- Nut `Lưu cấu hình`, `Kiểm tra kết nối`, `Xóa khỏi DB`.
+Default provider **không tự chọn theo thứ tự**. Người dùng phải bấm nút ngôi sao “Đặt làm mặc định”. Tên được lưu trong `AppSetting`; factory chỉ trả default nếu tên còn được hỗ trợ và provider vẫn có API key.
 
-Default provider:
+Prompt chính yêu cầu:
 
-- Uu tien `minimax` neu co key.
-- Tiep theo `openrouter` neu co key.
-- Tiep theo `deepseek` neu co key.
-- Neu khong co provider nao, UI bao chua cau hinh API key.
+- Tiếng Việt hoàn toàn, không để CJK.
+- Giữ glossary/style guide và cấu trúc paragraph.
+- Văn phong tiên hiệp/huyền huyễn, không thêm bình luận.
+- Không dịch title trong output nội dung; title dùng prompt metadata riêng.
 
-## 12. Prompt Dich
+## 11. Trạng thái và thống kê UI
 
-Prompt dich chinh yeu cau:
+Trạng thái persist của `Chapter`:
 
-- Dich tu tieng Trung gian the sang tieng Viet.
-- Van phong tien hiep/huyen huyen.
-- Giu glossary.
-- Giu cau truc doan.
-- Khong them binh luan.
-- Khong dich tieu de chuong.
-- Chi tra ban dich tieng Viet.
-- **Bat buoc tieng Viet thuan, khong duoc de sot chu Han** (ke ca luong tu nhu `一头/一只/一道/一个`). Neu gap tu chua biet, dich sang tieng Viet hoac phien am Han Viet bang chu Latin.
-- Truoc khi tra loi, tu kiem tra CJK va sua sach.
+- `pending`, `fetching`, `fetched`, `translating`, `translated`, `error`.
 
-`CLEANUP_PROMPT` la prompt phu dung de sua lai ban dich con sot chu Han (chi goi khi detect CJK trong output).
+UI dùng `_chapter_detail_status()` thay vì tin hoàn toàn vào `status`:
 
-Khi sua prompt, can kiem tra file:
+1. Có `translated_text` → `translated`.
+2. Sau đó mới xét `translating`, `fetching`, `error`, `translated`.
+3. Có raw text → `fetched`.
+4. Còn lại → `not_fetched` (display-only, không phải status persist).
 
-- `app/services/providers/minimax.py`
+Trang chủ tổng hợp status novel từ `Chapter.status`. Novel chỉ hiện `translated` khi mọi chapter đều có status đó; chỉ hiện `fetched` khi toàn bộ chapter thuộc `fetched|translated` và có ít nhất một `fetched`.
 
-## 13. UI
+Novel detail có bốn số:
 
-Templates:
+- Tổng chương.
+- Bản gốc.
+- Đã dịch.
+- Lỗi/Dịch = translating + fetching + error.
 
-- `base.html`: layout, CSS, topbar (co link `Trang chủ`, `Cấu hình API`).
-- `index.html`: import URL/EPUB, danh sach truyen.
-- `novel.html`: chi tiet truyen, chuong, glossary, style guide.
-- `chapter.html`: xem/fetch/dich chuong. Hien thi progress bar khi dang dich, alert canh bao chat luong (vang) neu co, alert loi (do) neu co.
-- `api_settings.html`: trang `Cấu hình API` cho phep nhap/luu/test/xoa key provider.
+## 12. UI hiện tại
 
-Hien CSS nam truc tiep trong `base.html`.
+### Global
 
-## 14. Testing
+- Dark theme, sidebar desktop và mobile topbar trong `base.html`.
+- Home/settings dùng shell chung.
+- Novel detail và chapter reader ẩn sidebar/topbar, dùng canvas toàn chiều rộng.
 
-Test hien co:
+### Home
+
+- Cảnh báo khi chưa có API key hoặc chưa chọn default provider.
+- Import URL/EPUB.
+- Grid novel hiển thị cover, title/author đã dịch nếu có, source, số chapter, trạng thái và nút xóa.
+
+### Novel detail
+
+- Hero có cover, title/author/source/description và stats.
+- Bảng chapter có status/action; fetch/translate/retry dùng HTMX và phát event refresh.
+- Bảng và stats poll độc lập mỗi 5 giây; script giữ nguyên scroll table qua swap.
+- Style guide và glossary nằm ở cột bên.
+
+### Chapter reader
+
+- Header chỉ hiển thị breadcrumb, title, badge và action phù hợp; không hiển thị title gốc/provider.
+- Chapter đã có `translated_text` hiện `Đã dịch` và không hiện nút dịch.
+- Tự reload mỗi 5 giây khi `Chapter.status` là `translating` hoặc `fetching`.
+- Tabs: raw/vi/both; mặc định route là `vi`.
+- Navigator trước/danh sách/sau nằm giữa tabs và reading area.
+- Modal chapter list có search không dấu, active row, status badge và scrollbar custom.
+- Danh sách được server-render; nếu context bị thiếu, JavaScript lazy-load từ `/novels/{id}/chapters`.
+- Reader responsive: song song hai cột desktop, một cột mobile.
+
+### API settings
+
+- Ba card provider, mask key, hiển thị nguồn DB hoặc `.env`.
+- Save, test, clear và chọn default.
+- Toggle show/hide input key chỉ tác động input người dùng đang nhập; key đã lưu không được trả về browser.
+
+## 13. Testing
+
+Hai test script hiện có, tổng cộng 17 test function trong source:
 
 ```bash
 python tests/test_parsers.py
+python tests/test_chapter_ui.py
 ```
 
-Test bao gom:
+`test_parsers.py` kiểm tra cleaner, chunking, 69shuba, generic parser, charset và catalog URL. Direct runner cuối file gọi đủ 12 test function.
 
-- clean HTML.
-- split/join/chunk text.
-- chunk theo dau cau khi doan van qua dai.
-- parse 69shuba index.
-- parse chapter content.
-- parse generic index.
-- decode charset.
-- convert 69shuba book URL sang catalog URL.
+`test_chapter_ui.py` kiểm tra status derive, parallel reader, modal/search data, action dịch, lazy-load khi context cũ và default view `vi`.
 
-Khi sua parser hoac cleaner, nen chay test nay.
-
-## 15. Quy Uoc Khi AI Sua Du An
-
-Khi yeu cau AI sua tinh nang, AI nen:
-
-1. Doc `PROJECT_SPEC.md` truoc.
-2. Doc file lien quan truoc khi sua.
-3. Khong rewrite toan bo app neu chi can sua nho.
-4. Uu tien thay doi nho, dung trong tam.
-5. Neu sua parser web, doc `web_importer.py` va `tests/test_parsers.py`.
-6. Neu sua dich/prompt/provider, doc `glossary_service.py`, `runner.py`, `providers/minimax.py`, `translation_jobs.py`.
-7. Neu sua UI, doc template tuong ung trong `app/templates`.
-8. Neu sua database model, doc `models.py`, `db.py`, va kiem tra anh huong du lieu SQLite cu. Co the them cot moi vao `_SCHEMA_PATCHES` trong `db.py` de migration tu dong.
-9. Khong xoa du lieu user trong SQLite tru khi user yeu cau ro.
-10. Khong doi provider API contract neu khong can.
-11. Sau khi sua parser, chay `python tests/test_parsers.py`.
-12. Sau khi sua app startup/routes, nen chay import app hoac khoi dong uvicorn neu co the.
-13. Neu co thay doi `.env.example`, giai thich ro bien moi cho user non-code.
-14. Neu them provider moi, can cap nhat: `config.py`, `providers/minimax.py` (them class), `providers/factory.py` (`_build_provider`, `get_provider_no_session`, `available_providers`), `provider_settings_service.py` (`SUPPORTED_PROVIDERS`, `_defaults_for`), `templates/api_settings.html` (placeholder/label rieng neu can).
-
-## 16. Cac Diem Rui Ro Hien Biet
-
-- `fetch-all` dang nuot loi tung chuong, nen user kho biet chuong nao loi.
-- Background translation van dung in-memory thread registry, nen neu app restart giua luc dich thi `TranslationJob` trong DB se giu status cu (co the la `running`/`translating`). Can co co che resume/recover sau.
-- **Da co migration nhe**: `app/db.py` co `_apply_schema_patches()` tu them cot moi vao bang `chapter` va `translationjob` qua `ALTER TABLE`. Van chay tot voi SQLite cu, khong can reset DB.
-- Glossary extraction va chapter summary dang nuot loi im lang. Nen ghi warning de user biet.
-- `provider.translate` trong `base.py` khai bao `system_prompt` bat buoc, nhung implementation co default. Day la lech nhe ve type/interface.
-- `web_service.import_web_novel()` co tham so `allow_curl_cffi` nhung khong truyen ro xuong `import_from_url`.
-- Canh bao chat luong (`translation_warning`) duoc luu rieng nhung chi hien thi tren UI, chua co co che retry tu dong chi chunk loi.
-- Khi cleanup CJK that bai nhieu lan (vi du model chat luong thap), user phai tu sua ban dich thu cong.
-- Khong co authentication. App mac dinh la local tool.
-- Khong co export EPUB sau dich.
-- Canh bao sot chu Han chi dem vao `failed_chunks` khi phat hien CJK sau cleanup; khong dem cleanup that bai don le.
-
-## 17. Nhung Tinh Nang De Mo Rong
-
-Cac huong mo rong hop ly:
-
-- Export ban dich ra `.txt`, `.docx`, `.epub`.
-- Dich hang loat nhieu chuong (da co `TranslationJob` lam nen tang).
-- Retry chapter loi (da co `TranslationJob` + `error_message` de retry).
-- Hien thi log loi fetch/dich tren UI.
-- Cho chinh sua ban dich thu cong (editor text + luu lai).
-- Quan ly glossary tot hon: edit term, merge duplicate, import/export glossary.
-- Them provider khac (vi du OpenAI, Gemini, Claude) - khoi diem la OpenRouter da duoc them.
-- Them parser rieng cho cac web truyen khac.
-- Them progress bar tong cho nhieu chuong (ta da co progress theo chunk).
-- Them co che resume job khi app restart (can cleanup `TranslationJob` co status `running` luc khoi dong).
-- Da co migration nhe qua `_apply_schema_patches()`, nhuong van nen nang cap dung Alembic neu schema phuc tap hon.
-- Tach CSS ra static file neu can UI lon hon.
-- UI cho phep xem/clear `translation_warning` rieng (khong phai sua ca chapter).
-
-## 18. Cach Giao Nhiem Vu Cho AI Trong Session Sau
-
-Khi nho AI sua tinh nang, nen dua prompt dang:
-
-```text
-Doc PROJECT_SPEC.md truoc. Toi la non-code user.
-Toi muon sua/them tinh nang: [mo ta tinh nang].
-Hay tu doc file lien quan, sua code, chay test phu hop, roi bao lai ngan gon.
-Khong xoa du lieu cu neu toi khong yeu cau.
-```
-
-Vi du:
-
-```text
-Doc PROJECT_SPEC.md truoc. Toi muon them nut export ban dich toan truyen ra file txt.
-Hay tu sua code va them UI don gian cho toi.
-```
-
-Vi du:
-
-```text
-Doc PROJECT_SPEC.md truoc. Toi muon khi dich loi thi UI hien ly do loi thay vi chi status error.
-Hay sua toi thieu va chay test neu phu hop.
-```
-
-## 19. Lenh Thuong Dung
-
-Cai dependency:
+Kiểm tra cơ bản sau thay đổi:
 
 ```bash
+python -m compileall -q app tests
+python tests/test_parsers.py
+python tests/test_chapter_ui.py
+git diff --check
+```
+
+Project chưa pin `pytest` trong `requirements.txt` và chưa có test tích hợp thật cho HTTP POST/background thread/provider network.
+
+## 14. Rủi ro và technical debt đã biết
+
+- `fetch-all` chạy đồng bộ, nuốt lỗi từng chapter và không có feedback chi tiết; route hiện không có nút trên template.
+- `REQUEST_TIMEOUT`, `USE_CURL_CFFI_FALLBACK`, `USE_PLAYWRIGHT_FALLBACK` chưa được wiring từ settings vào route import. `import_web_novel(... allow_curl_cffi=...)` cũng không truyền tham số này xuống `import_from_url()`.
+- Background translation registry chỉ ở memory; restart app có thể để `Chapter.translating`/`TranslationJob.running` bị treo.
+- Xóa novel chưa xóa `TranslationJob`, nên có thể để orphan job hoặc gặp lỗi nếu môi trường bật foreign key enforcement.
+- Xóa glossary term chỉ dùng `term_id`, chưa xác minh term thuộc `novel_id` trên URL.
+- Stats `raw` hiện không cộng các chapter đã `translated`, dù chúng thường vẫn có raw text; số “Bản gốc” có thể thấp hơn thực tế.
+- UI derive ưu tiên `translated_text`, vì vậy nếu retranslate bằng request thủ công trong lúc vẫn giữ bản dịch cũ, UI có thể vẫn hiển thị `translated` thay vì `translating/error`.
+- Lỗi extract glossary và summarize bị bỏ qua; người dùng không biết hậu xử lý thất bại.
+- Metadata translation chạy đồng bộ trong request import và có thể làm import chậm.
+- Generic parser nhận mọi anchor `.html`, chưa deduplicate/filter mạnh như parser 69shuba.
+- `fetch_chapter_raw()` không báo lỗi khi chapter không có `source_url`; nó trả nguyên object.
+- Save provider với input key để trống ghi đè API key DB thành rỗng, trái với placeholder “nhập key mới để thay thế”.
+- `.env.example` thiếu cấu hình OpenRouter.
+- `TranslationProvider.translate()` trong Protocol yêu cầu `system_prompt`, trong khi implementation có default; type contract đang lệch.
+- Type hint `_translate_one()` khai báo tuple 2 phần nhưng thực tế trả 3 phần `(index, text, warning)`.
+- Không có auth/CSRF; chỉ phù hợp chạy local và không nên expose trực tiếp ra Internet.
+- Không có Alembic, foreign-key cascade, pagination hoặc virtualized list; novel lớn render/poll danh sách chapter khá nặng.
+
+## 15. Quy ước khi sửa dự án
+
+1. Đọc `PROJECT_SPEC.md` và file liên quan trước khi sửa.
+2. Giữ nguyên dữ liệu SQLite trừ khi người dùng yêu cầu xóa/migrate rõ ràng.
+3. Với thay đổi schema, cập nhật model và xem xét `_SCHEMA_PATCHES`; patch hiện tại chỉ hỗ trợ thêm cột SQLite.
+4. Với parser, đọc `web_importer.py`, `web_service.py` và cập nhật `test_parsers.py`.
+5. Với pipeline dịch/provider, đọc `glossary_service.py`, `runner.py`, `translation_jobs.py`, factory và provider implementation.
+6. Với UI, giữ CSS scoped theo page để không gây regression các template khác.
+7. Nếu thêm provider, cập nhật settings, provider class/factory, `SUPPORTED_PROVIDERS`, API settings UI và `.env.example`.
+8. Sau thay đổi, chạy compile, test script liên quan và `git diff --check`.
+
+## 16. Lệnh thường dùng
+
+Cài dependency:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Chay app:
+Chạy app:
 
 ```bash
 python -m app.main
-```
-
-Hoac:
-
-```bash
+# hoặc
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Chay test parser:
+Nếu dùng Playwright fallback, cần cài browser riêng:
 
 ```bash
-python tests/test_parsers.py
+playwright install chromium
 ```
-
-Khi sua `glossary_service.py`, `runner.py` hoac provider, nen chay them smoke test (neu co) de kiem tra progress/job va canh bao chat luong.
-
-Cau hinh API key tren web: mo `Cấu hình API` tren topbar, chon provider, nhap key/model, luu. Co the test ket noi truoc khi dich. Neu muon quay ve dung `.env`, chon `Xóa khỏi DB`.
-
-## 20. Nguyen Tac San Pham
-
-Vi user la non-code user:
-
-- Uu tien UI ro rang.
-- Loi can hien thi bang tieng Viet de hieu.
-- Khong yeu cau user mo database thu cong.
-- Khong yeu cau user sua code thu cong.
-- Neu can cau hinh `.env`, phai huong dan cu the bien nao can them/sua.
-- Cac thao tac lau nhu fetch/dich nen chay nen hoac co trang thai tien trinh.
-- Khong lam mat du lieu truyen, chuong, glossary, ban dich da luu.

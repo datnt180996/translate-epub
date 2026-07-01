@@ -205,7 +205,7 @@ def _chapter_row_response(
     stats_html = ""
     if include_stats:
         stats_html = templates.get_template("partials/novel_stats.html").render(
-            novel=novel, stats=novel_stats,
+            novel=novel, stats=novel_stats, oob=True, poll_url=f"/novels/{novel.id}/stats",
         )
     from fastapi.responses import Response
     body = "<table><tbody>" + row_html + "</tbody></table>" + stats_html
@@ -366,10 +366,7 @@ def novel_chapters_partial(
         )
         for c in chapters
     )
-    stats_html = templates.get_template("partials/novel_stats.html").render(
-        novel=novel, stats=novel_stats,
-    )
-    body = rows_html + stats_html
+    body = rows_html
     return HTMLResponse(content=body)
 
 
@@ -387,7 +384,7 @@ def novel_stats_partial(
     return templates.TemplateResponse(
         request,
         "partials/novel_stats.html",
-        {"novel": novel, "stats": novel_stats},
+        {"novel": novel, "stats": novel_stats, "poll_url": f"/novels/{novel.id}/stats"},
     )
 
 
@@ -464,6 +461,10 @@ def chapter_view(
     providers = available_providers(session) or []
     from .services import translation_jobs as jobs
     job = jobs.get(session, chapter_id)
+    chapter_items = [
+        {"chapter": item, "display_status": _chapter_detail_status(item)}
+        for item in chapters
+    ]
     return templates.TemplateResponse(
         request,
         "chapter.html",
@@ -473,6 +474,8 @@ def chapter_view(
             "prev_id": prev_id,
             "next_id": next_id,
             "view": view,
+            "display_status": _chapter_detail_status(chapter),
+            "chapter_items": chapter_items,
             "providers": providers,
             "default_provider": default_provider(session),
             "has_provider": bool(providers),
@@ -484,21 +487,20 @@ def chapter_view(
 
 
 def _stats_only_response(novel: Novel, chapter: Chapter, session: Session, trigger_event: Optional[str] = None):
-    """Stats OOB update + body event trigger so the container `<tbody>` polling
-    or event listener can refresh all rows. Stats itself swaps via OOB so the
-    detail UI updates without waiting for the next polling tick.
+    """Return a no-swap HTMX response that only emits a refresh event.
+
+    The novel detail page has independent HTMX regions for the chapter table
+    and stats. POST actions should not return OOB fragments here because those
+    can race with the table/stats refreshes triggered by the same response and
+    cause htmx swap errors in 1.9.10. The event lets each region fetch itself
+    with a normal GET in its own DOM context.
     """
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel.id)).all())
-    novel_stats = _novel_stats_from_chapters(chapters)
-    stats_html = templates.get_template("partials/novel_stats.html").render(
-        novel=novel, stats=novel_stats,
-    )
     from fastapi.responses import Response
     headers = {}
     if trigger_event:
         headers["HX-Trigger"] = json.dumps({trigger_event: {"chapterId": chapter.id, "novelId": novel.id}})
     return Response(
-        content=stats_html,
+        content="",
         media_type="text/html",
         status_code=200,
         headers=headers or None,

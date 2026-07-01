@@ -7,10 +7,15 @@ from sqlmodel import Session, select
 
 from ..config import get_settings
 from ..models import Chapter, ChapterSummary, GlossaryTerm, Novel, StyleGuide
-from .chapter_cleaner import chunk_text, join_paragraphs, split_into_paragraphs
+from .chapter_cleaner import chunk_text, count_non_empty_lines, line_count_mismatch
 from .providers.base import TranslationContext
 from .providers.factory import get_provider
-from .providers.minimax import CLEANUP_PROMPT, contains_cjk, find_cjk_spans
+from .providers.minimax import (
+    CLEANUP_PROMPT,
+    LINE_ALIGNMENT_PROMPT,
+    contains_cjk,
+    find_cjk_spans,
+)
 from . import translation_jobs as jobs
 
 
@@ -169,9 +174,43 @@ def translate_chapter(
         raise
 
     translated_chunks = [translated_by_index[i] for i in range(len(chunks))]
-    translated_text = join_paragraphs(translated_chunks)
+    translated_text = "\n".join(c for c in translated_chunks if c)
+
+    alignment_warning: Optional[str] = None
+    src_lines, tgt_lines = line_count_mismatch(chapter.raw_text, translated_text)
+    if src_lines != tgt_lines:
+        try:
+            repair_user = (
+                f"### Bản gốc tiếng Trung\n{chapter.raw_text}\n\n"
+                f"### Bản dịch tiếng Việt\n{translated_text}"
+            )
+            repaired = provider._chat(
+                LINE_ALIGNMENT_PROMPT, repair_user, temperature=0.0
+            ).strip()
+            if repaired:
+                new_src, new_tgt = line_count_mismatch(chapter.raw_text, repaired)
+                if new_src == new_tgt and new_src > 0:
+                    translated_text = repaired
+                    src_lines, tgt_lines = new_src, new_tgt
+                else:
+                    alignment_warning = (
+                        f"Bản dịch không khớp số dòng gốc (gốc: {src_lines}, "
+                        f"dịch: {tgt_lines}, sau repair: {new_tgt})"
+                    )
+        except Exception as repair_exc:  # noqa: BLE001
+            alignment_warning = (
+                f"Bản dịch không khớp số dòng gốc (gốc: {src_lines}, dịch: {tgt_lines}); "
+                f"repair lỗi ({repair_exc})"
+            )
+
+        if alignment_warning is None and src_lines != tgt_lines:
+            alignment_warning = (
+                f"Bản dịch không khớp số dòng gốc (gốc: {src_lines}, dịch: {tgt_lines})"
+            )
 
     warnings = [w for w in (warnings_by_index[i] for i in range(len(chunks))) if w]
+    if alignment_warning:
+        warnings.append(alignment_warning)
     if warnings:
         chapter.translation_warning = "Bản dịch có cảnh báo: " + "; ".join(warnings)
 
