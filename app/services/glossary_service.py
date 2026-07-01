@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -10,8 +10,6 @@ from ..models import Chapter, ChapterSummary, GlossaryTerm, Novel, StyleGuide
 from .chapter_cleaner import chunk_text, join_paragraphs, split_into_paragraphs
 from .providers.base import TranslationContext
 from .providers.factory import get_provider
-from .providers.minimax import CLEANUP_PROMPT, contains_cjk, find_cjk_spans
-from . import translation_jobs as jobs
 
 
 def get_style_guide(session: Session, novel_id: int) -> str:
@@ -103,18 +101,15 @@ def translate_chapter(
     if max_chunk_chars is None:
         max_chunk_chars = settings.translation_max_chunk_chars
 
-    provider = get_provider(session, provider_name)
+    provider = get_provider(provider_name)
     context = build_translation_context(session, novel, chapter)
 
     chunks = chunk_text(chapter.raw_text, max_chars=max_chunk_chars)
 
     chapter.status = "translating"
-    chapter.translation_warning = None
     session.add(chapter)
     session.commit()
     session.refresh(chapter)
-
-    jobs.mark_running(session, chapter.id, total_chunks=len(chunks))
 
     concurrency = max(1, min(settings.translation_concurrency, len(chunks) or 1))
 
@@ -122,58 +117,29 @@ def translate_chapter(
         translated = provider.translate(chunks[idx], context=context)
         if not translated or not translated.strip():
             raise RuntimeError(f"Provider trả về chunk dịch rỗng (chunk {idx + 1}).")
-        warning: Optional[str] = None
-        if contains_cjk(translated):
-            try:
-                cleaned = provider._chat(
-                    CLEANUP_PROMPT,
-                    translated,
-                    temperature=0.0,
-                ).strip()
-                if cleaned:
-                    translated = cleaned
-            except Exception as cleanup_exc:  # noqa: BLE001
-                warning = f"chunk {idx + 1}: cleanup lỗi ({cleanup_exc})"
-        if contains_cjk(translated):
-            examples = "".join(find_cjk_spans(translated))
-            warning = (
-                f"chunk {idx + 1}: còn sót chữ Hán ({examples})"
-                if warning is None
-                else f"{warning}; vẫn còn chữ Hán ({examples})"
-            )
-        return idx, translated, warning
+        return idx, translated
 
     translated_by_index: dict[int, str] = {}
-    warnings_by_index: dict[int, Optional[str]] = {}
 
     try:
         if concurrency <= 1 or len(chunks) <= 1:
             for i in range(len(chunks)):
-                idx, txt, warn = _translate_one(i)
+                idx, txt = _translate_one(i)
                 translated_by_index[idx] = txt
-                warnings_by_index[idx] = warn
-                jobs.increment_progress(session, chapter.id, failed=bool(warn and "còn sót chữ Hán" in warn))
         else:
             with ThreadPoolExecutor(max_workers=concurrency) as pool:
-                futures = {pool.submit(_translate_one, i): i for i in range(len(chunks))}
-                for fut in as_completed(futures):
-                    idx, txt, warn = fut.result()
+                futures = [pool.submit(_translate_one, i) for i in range(len(chunks))]
+                for fut in futures:
+                    idx, txt = fut.result()
                     translated_by_index[idx] = txt
-                    warnings_by_index[idx] = warn
-                    jobs.increment_progress(session, chapter.id, failed=bool(warn and "còn sót chữ Hán" in warn))
-    except Exception as e:
+    except Exception:
         chapter.status = "error"
         session.add(chapter)
         session.commit()
-        jobs.mark_error(session, chapter.id, str(e))
         raise
 
     translated_chunks = [translated_by_index[i] for i in range(len(chunks))]
     translated_text = join_paragraphs(translated_chunks)
-
-    warnings = [w for w in (warnings_by_index[i] for i in range(len(chunks))) if w]
-    if warnings:
-        chapter.translation_warning = "Bản dịch có cảnh báo: " + "; ".join(warnings)
 
     if not translated_text or not translated_text.strip():
         chapter.status = "error"
@@ -187,21 +153,8 @@ def translate_chapter(
     from datetime import datetime
     chapter.updated_at = datetime.utcnow()
     session.add(chapter)
-    jobs.mark_done(session, chapter.id)
     session.commit()
     session.refresh(chapter)
-
-    if not chapter.translated_title and chapter.title:
-        try:
-            translated_title = provider.translate_metadata(chapter.title)
-        except Exception:
-            translated_title = ""
-        if translated_title:
-            chapter.translated_title = translated_title
-            chapter.updated_at = datetime.utcnow()
-            session.add(chapter)
-            session.commit()
-            session.refresh(chapter)
 
     if settings.auto_extract_glossary:
         try:
