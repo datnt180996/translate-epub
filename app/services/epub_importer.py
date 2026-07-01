@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from typing import Optional
@@ -11,6 +12,37 @@ from sqlmodel import Session
 from ..models import Chapter, Novel
 from .chapter_cleaner import clean_html_to_text
 from .chapter_order import sort_chapters
+
+
+_log = logging.getLogger(__name__)
+
+
+def _try_translate_metadata(session: Session, text: str, label: str) -> Optional[str]:
+    if not text or not text.strip():
+        return None
+    from .providers.factory import default_provider, get_provider
+    provider_name = default_provider(session)
+    if not provider_name:
+        return None
+    try:
+        provider = get_provider(session, provider_name)
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Không thể khởi tạo provider để dịch %s EPUB: %s", label, exc)
+        return None
+    try:
+        translated = provider.translate_metadata(text.strip())
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Dịch %s EPUB thất bại: %s", label, exc)
+        return None
+    return translated or None
+
+
+def _try_translate_novel_title(session: Session, text: str) -> Optional[str]:
+    return _try_translate_metadata(session, text, "title")
+
+
+def _try_translate_novel_author(session: Session, text: str) -> Optional[str]:
+    return _try_translate_metadata(session, text, "author")
 
 
 def _get_item_text(book: epub.EpubBook, item) -> str:
@@ -100,6 +132,21 @@ def import_epub_file(session: Session, file_path: str, original_filename: Option
     session.add(novel)
     session.commit()
     session.refresh(novel)
+
+    translated = _try_translate_novel_title(session, novel.title)
+    if translated:
+        novel.translated_title = translated
+        session.add(novel)
+        session.commit()
+        session.refresh(novel)
+
+    if novel.author:
+        translated_author = _try_translate_novel_author(session, novel.author)
+        if translated_author and translated_author != novel.author:
+            novel.translated_author = translated_author
+            session.add(novel)
+            session.commit()
+            session.refresh(novel)
 
     items = _spine_items(book)
     raw_entries: list[tuple[str, object, str]] = []
