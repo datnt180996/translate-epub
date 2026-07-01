@@ -24,7 +24,12 @@ SAMPLE_69SHUBA_INDEX = """
 <head><meta charset="gb18030"><title>飞剑问道-69书吧</title></head>
 <body>
 <div class="bookinfo">
-  <h1>飞剑问道</h1>
+  <div class="info">
+    <h1>飞剑问道</h1>
+    <p><span>作者：耳根</span></p>
+    <p><span>状态：连载中</span></p>
+  </div>
+  <div id="fmimg"><img src="https://cdn.cdnshu.com/files/article/image/51/51256/51256s.jpg" alt="cover"></div>
   <div id="intro">这是一本修仙小说。</div>
 </div>
 <div id="list">
@@ -97,10 +102,23 @@ def test_chunk_long_splits():
     assert "Đoạn 49." in joined
 
 
+def test_chunk_oversized_paragraph_splits_by_sentence():
+    long = "少年名叫李云。 " * 200
+    chunks = chunk_text(long, max_chars=120)
+    assert len(chunks) > 1
+    for c in chunks:
+        assert "少年名叫李云。" in c
+        assert len(c) <= 200
+    joined = "".join(chunks)
+    assert joined.count("少年名叫李云。") >= 198
+
+
 def test_parse_69shuba_index_extracts_title_and_chapters():
     novel = parse_69shuba_index(SAMPLE_69SHUBA_INDEX, "https://www.69shuba.com/book/51256.htm")
     assert novel.title == "飞剑问道"
     assert novel.description == "这是一本修仙小说。"
+    assert novel.author == "耳根"
+    assert novel.cover_url == "https://cdn.cdnshu.com/files/article/image/51/51256/51256s.jpg"
     assert len(novel.chapters) == 4
     assert novel.chapters[0].title == "第一章 少年"
     assert novel.chapters[0].url == "https://www.69shuba.com/txt/51256/10001"
@@ -126,6 +144,8 @@ def test_parse_generic_index_fallback():
     """
     novel = parse_generic_index(html, "https://example.com/book")
     assert novel.title == "Generic Novel"
+    assert novel.author is None
+    assert novel.cover_url is None
     assert len(novel.chapters) == 2
     assert novel.chapters[0].url == "https://example.com/ch/1.html"
 
@@ -162,6 +182,7 @@ if __name__ == "__main__":
         test_split_and_join_roundtrip,
         test_chunk_short,
         test_chunk_long_splits,
+        test_chunk_oversized_paragraph_splits_by_sentence,
         test_parse_69shuba_index_extracts_title_and_chapters,
         test_parse_chapter_text_extracts_content,
         test_parse_generic_index_fallback,

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict
 
 from sqlmodel import Session
 
 from ..db import engine
 from ..models import Chapter, Novel
+from . import translation_jobs as jobs
 from .glossary_service import translate_chapter
 
 
@@ -32,6 +34,8 @@ def is_translating(chapter_id: int) -> bool:
 def _worker(novel_id: int, chapter_id: int, provider_name: str) -> None:
     try:
         with Session(engine) as session:
+            jobs.reset(session, chapter_id, novel_id=novel_id, provider=provider_name)
+        with Session(engine) as session:
             novel = session.get(Novel, novel_id)
             chapter = session.get(Chapter, chapter_id)
             if novel is None or chapter is None:
@@ -43,9 +47,12 @@ def _worker(novel_id: int, chapter_id: int, provider_name: str) -> None:
                 chapter = session.get(Chapter, chapter_id)
                 if chapter is not None:
                     chapter.status = "error"
+                    chapter.error_message = str(e)
                     chapter.translation_provider = chapter.translation_provider or provider_name
+                    chapter.updated_at = datetime.utcnow()
                     session.add(chapter)
                     session.commit()
+                jobs.mark_error(session, chapter_id, str(e))
         except Exception:
             pass
         _last_errors[chapter_id] = str(e)

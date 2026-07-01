@@ -21,7 +21,12 @@ TRANSLATION_SYSTEM_PROMPT = (
     "4. Không thêm bình luận, không thêm ghi chú, không dịch tiêu đề chương (tiêu đề sẽ được xử lý riêng).\n"
     "5. Giữ nguyên thuật ngữ tu luyện, cảnh giới, chiêu thức, pháp bảo theo style guide nếu có.\n"
     "6. Nếu gặp tên riêng chưa có trong glossary, hãy tạm phiên âm Hán Việt nhất quán và ghi chú lại trong đầu.\n"
-    "7. CHỈ trả về bản dịch tiếng Việt, không kèm theo bản gốc, không kèm theo chú thích kỹ thuật."
+    "7. CHỈ trả về bản dịch tiếng Việt, không kèm theo bản gốc, không kèm theo chú thích kỹ thuật.\n"
+    "8. Bản dịch phải là tiếng Việt hoàn toàn. TUYỆT ĐỐI không để sót bất kỳ chữ Hán nào "
+    "(kể cả lượng từ như 一头/一只/一道/一个, hoặc trợ từ cổ điển, hoặc bất kỳ ký tự nào thuộc chữ Hán giản thể/phồn thể). "
+    "Nếu gặp từ/cụm chưa biết cách dịch, hãy dịch sang tiếng Việt hoặc phiên âm Hán Việt bằng chữ Latin, "
+    "không được giữ nguyên chữ Hán trong bản dịch (trừ ký hiệu/đơn vị mà tác giả cố tình giữ).\n"
+    "9. Trước khi trả lời, tự kiểm tra: nếu trong bản dịch còn bất kỳ ký tự CJK nào, hãy sửa lại cho sạch rồi mới trả về."
 )
 
 
@@ -93,6 +98,65 @@ def _safe_json_array(text: str) -> list[dict]:
                 }
             )
     return cleaned
+
+
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+def contains_cjk(text: str) -> bool:
+    return bool(text and _CJK_RE.search(text))
+
+
+def find_cjk_spans(text: str, max_examples: int = 3) -> list[str]:
+    if not text:
+        return []
+    return _CJK_RE.findall(text)[:max_examples]
+
+
+CLEANUP_PROMPT = (
+    "Bản dịch tiếng Việt dưới đây vẫn còn sót chữ Hán (ví dụ: 一头, 只, đạo, 个, hoặc bất kỳ CJK nào). "
+    "Hãy viết lại toàn bộ bằng tiếng Việt thuần, giữ nguyên cấu trúc đoạn, giữ nguyên tên riêng trong glossary, "
+    "và loại bỏ toàn bộ chữ Hán. Chỉ trả về bản tiếng Việt đã sửa sạch, không kèm giải thích."
+)
+
+
+METADATA_TRANSLATION_PROMPT = (
+    "Bạn là trợ lý dịch metadata cho truyện tu tiên tiếng Trung. "
+    "Nhiệm vụ: dịch một TIÊU ĐỀ ngắn (tên truyện hoặc tên chương) sang tiếng Việt.\n"
+    "Yêu cầu bắt buộc:\n"
+    "1. Chỉ trả về MỘT dòng tiêu đề tiếng Việt. Không kèm giải thích, không kèm dấu nháy, không prefix.\n"
+    "2. Giữ nguyên tên riêng đã quen thuộc (ví dụ: Hồng Hoang, Trung Thổ). Nếu tên phiên âm Hán Việt phổ biến, ưu tiên dùng.\n"
+    "3. Bỏ các tiền tố lặt vặt như '第...章', '序章', '番外', '后记', '外传', '终章', '附录' hoặc chuyển sang dạng rõ ràng "
+    "(ví dụ: '第1章' -> 'Chương 1', '番外' -> 'Ngoại truyện', '后记' -> 'Lời bạt').\n"
+    "4. Văn phong gọn, tự nhiên, không thêm chú thích.\n"
+    "5. Bản dịch phải là tiếng Việt thuần, TUYỆT ĐỐI không để sót chữ Hán."
+)
+
+
+def translate_metadata(provider: "OpenAICompatProvider", text: str) -> str:
+    """Translate a short metadata string (novel/chapter title) to Vietnamese.
+
+    Uses the lightweight metadata prompt. Returns empty string on failure
+    so callers can fall back to the original text.
+    """
+    if provider is None or not text or not text.strip():
+        return ""
+    try:
+        out = provider._chat(METADATA_TRANSLATION_PROMPT, text.strip(), temperature=0.2).strip()
+    except Exception:
+        return ""
+    if not out:
+        return ""
+    out = out.splitlines()[0].strip().strip('"').strip("'").strip()
+    if not out:
+        return ""
+    if contains_cjk(out):
+        try:
+            out = provider._chat(CLEANUP_PROMPT, out, temperature=0.0).strip()
+        except Exception:
+            return ""
+        out = out.splitlines()[0].strip().strip('"').strip("'").strip()
+    return out
 
 
 class OpenAICompatProvider:
@@ -196,6 +260,24 @@ class OpenAICompatProvider:
             return data["content"]
         return ""
 
+    def ping(self) -> dict:
+        """Lightweight API check. Returns dict with ``ok`` and details."""
+        system_prompt = "Bạn là hệ thống kiểm tra kết nối."
+        user_prompt = (
+            "Hãy trả lời đúng một từ: OK. Không kèm giải thích, không kèm bất kỳ ký tự nào khác."
+        )
+        try:
+            content = self._chat(system_prompt, user_prompt, temperature=0.0).strip()
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        reply = (content[:32] if content else "").strip()
+        return {
+            "ok": True,
+            "reply": reply,
+            "model": self.model,
+            "base_url": self.base_url,
+        }
+
     def translate(self, text: str, context: TranslationContext, system_prompt: str = TRANSLATION_SYSTEM_PROMPT) -> str:
         context_block = _format_context_block(context)
         user_prompt = f"{context_block}\n\n### Văn bản gốc cần dịch\n{text}"
@@ -221,6 +303,9 @@ class OpenAICompatProvider:
         )
         return self._chat(SUMMARY_PROMPT, user_prompt, temperature=0.3).strip()
 
+    def translate_metadata(self, text: str) -> str:
+        return translate_metadata(self, text)
+
 
 class MinimaxProvider(OpenAICompatProvider):
     def __init__(self, api_key: str, base_url: str, model: str, group_id: str = ""):
@@ -230,3 +315,8 @@ class MinimaxProvider(OpenAICompatProvider):
 class DeepSeekProvider(OpenAICompatProvider):
     def __init__(self, api_key: str, base_url: str, model: str):
         super().__init__(name="deepseek", api_key=api_key, base_url=base_url, model=model)
+
+
+class OpenRouterProvider(OpenAICompatProvider):
+    def __init__(self, api_key: str, base_url: str, model: str):
+        super().__init__(name="openrouter", api_key=api_key, base_url=base_url, model=model, group_id="")

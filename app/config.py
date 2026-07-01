@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com/v1"
 
+    openrouter_api_key: str = ""
+    openrouter_model: str = "deepseek/deepseek-v4-pro"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
     request_timeout: int = 30
     use_curl_cffi_fallback: bool = True
     use_playwright_fallback: bool = False

@@ -1,0 +1,455 @@
+<!DOCTYPE html><html class="dark" lang="vi" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Đại Đạo Triều Thiên - Dịch Hiệp</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Merriweather:wght@300;400;700&amp;display=swap" rel="stylesheet">
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary-container": "#0ea5e9",
+                    "surface-dim": "#0b1326",
+                    "primary-fixed": "#c9e6ff",
+                    "surface-container-lowest": "#060e20",
+                    "surface-tint": "#89ceff",
+                    "tertiary": "#c0c1ff",
+                    "error-container": "#93000a",
+                    "background": "#0b1326",
+                    "surface": "#0b1326",
+                    "on-primary-container": "#003751",
+                    "on-background": "#dae2fd",
+                    "tertiary-fixed-dim": "#c0c1ff",
+                    "surface-container-low": "#131b2e",
+                    "on-tertiary-fixed-variant": "#2f2ebe",
+                    "primary-fixed-dim": "#89ceff",
+                    "on-secondary": "#003731",
+                    "error": "#ffb4ab",
+                    "on-secondary-fixed-variant": "#005048",
+                    "surface-container-highest": "#2d3449",
+                    "outline": "#88929b",
+                    "on-surface-variant": "#bec8d2",
+                    "secondary-fixed": "#71f8e4",
+                    "on-secondary-fixed": "#00201c",
+                    "on-primary-fixed-variant": "#004c6e",
+                    "on-primary": "#00344d",
+                    "tertiary-fixed": "#e1e0ff",
+                    "surface-container-high": "#222a3d",
+                    "inverse-surface": "#dae2fd",
+                    "on-secondary-container": "#003f38",
+                    "on-primary-fixed": "#001e2f",
+                    "surface-variant": "#2d3449",
+                    "surface-bright": "#31394d",
+                    "on-tertiary-container": "#1407ad",
+                    "primary": "#89ceff",
+                    "outline-variant": "#3e4850",
+                    "on-tertiary": "#1000a9",
+                    "secondary-fixed-dim": "#4fdbc8",
+                    "surface-container": "#171f33",
+                    "tertiary-container": "#8d90ff",
+                    "inverse-primary": "#006591",
+                    "on-surface": "#dae2fd",
+                    "on-tertiary-fixed": "#07006c",
+                    "on-error": "#690005",
+                    "on-error-container": "#ffdad6",
+                    "secondary": "#4fdbc8",
+                    "secondary-container": "#04b4a2",
+                    "inverse-on-surface": "#283044"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "md": "16px",
+                    "container-max": "1200px",
+                    "sm": "8px",
+                    "xs": "4px",
+                    "xl": "40px",
+                    "sidebar-width": "260px",
+                    "base": "4px",
+                    "lg": "24px"
+            },
+            "fontFamily": {
+                    "title-sm": ["Inter"],
+                    "display-lg": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "reading-body": ["Merriweather"],
+                    "reading-body-mobile": ["Merriweather"],
+                    "ui-label": ["Inter"],
+                    "ui-caption": ["Inter"]
+            },
+            "fontSize": {
+                    "title-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+                    "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "reading-body": ["18px", {"lineHeight": "32px", "fontWeight": "400"}],
+                    "reading-body-mobile": ["16px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "ui-label": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "ui-caption": ["12px", {"lineHeight": "16px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Custom scrollbar for deep dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: theme('colors.surface-container-lowest');
+        }
+        ::-webkit-scrollbar-thumb {
+            background: theme('colors.surface-variant');
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: theme('colors.outline-variant');
+        }
+        
+        /* Subtle glow animation for active processing */
+        @keyframes pulse-border {
+            0% { border-color: theme('colors.outline-variant'); box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+            50% { border-color: theme('colors.primary'); box-shadow: 0 0 8px 0 rgba(14, 165, 233, 0.3); }
+            100% { border-color: theme('colors.outline-variant'); box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+        }
+        .processing-pulse {
+            animation: pulse-border 2s infinite;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-title-sm min-h-screen flex selection:bg-primary-container selection:text-on-primary-container" style="width: 1280px; height: 1144px; margin-left: auto; margin-right: auto; overflow-x: hidden; position: relative;">
+<!-- Shared Component: SideNavBar -->
+
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col min-h-screen">
+<!-- Shared Component: TopNavBar -->
+
+<!-- Page ContentCanvas -->
+<main class="flex-1 w-full max-w-container-max mx-auto px-lg py-xl flex flex-col gap-xl">
+<!-- Breadcrumb -->
+<nav class="flex items-center gap-sm font-ui-label text-ui-label text-on-surface-variant">
+<a class="hover:text-primary transition-colors flex items-center gap-xs" href="#">
+<span class="material-symbols-outlined text-[16px]">library_books</span>
+                    Thư viện
+                </a>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+<span class="text-on-surface font-medium">Đại Đạo Triều Thiên</span>
+</nav>
+<!-- Header Section -->
+<section class="flex flex-col gap-lg bg-surface-container-low border border-outline-variant rounded-xl p-lg relative overflow-hidden"><!-- Subtle background ambient shader effect -->
+<div class="absolute inset-0 opacity-20 pointer-events-none mix-blend-screen bg-gradient-to-br from-primary-container/20 via-transparent to-surface-dim"></div>
+
+<div class="relative z-10 w-full flex flex-col gap-lg">
+    <!-- Top Row: Back Button -->
+    <div class="flex items-center">
+        <a href="#" class="flex items-center gap-2 text-on-surface-variant hover:text-primary transition-colors font-ui-label text-ui-label">
+            <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+            Trang chủ
+        </a>
+    </div>
+
+    <!-- Main Row: Info and Stats -->
+    <div class="flex flex-col lg:flex-row items-center justify-between gap-xl">
+        <!-- Left: Novel Info -->
+        <div class="flex flex-col md:flex-row items-center md:items-center gap-lg">
+            <div class="w-32 h-44 rounded-lg overflow-hidden border border-outline-variant shadow-lg flex-shrink-0 bg-surface-container shadow-black/50">
+                <img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjKb3WeaQeAHWOi045l5Jax-aHd7PP-HM7XQ3IUaEPuD_hPfvu94SBFEhCxB7mywmCg2ZTWJDA3W32vn7sk9eG-eII_zLINGH3gTF4nUdThpSSRCjCz_o2sQ2wt6672njFxeT3fhXQrmHzWGvClPrjANDZqzx929o2DPXGytzUuq1GgrE5souTNkUqs4cs1VrjHKAVjcgSELXlpwSWG6g0j0R4P_EEbfQHmoKkeJe06DE5u7qoSvQD8gNQhkWdnnU5NojW_09DXBs">
+            </div>
+            <div class="flex flex-col gap-2 text-center md:text-left">
+                <div class="flex flex-col gap-1">
+                    <h1 class="font-display-lg text-display-lg text-on-surface">Đại Đạo Triều Thiên</h1>
+                    <div class="flex items-center justify-center md:justify-start gap-md font-ui-label text-ui-label text-on-surface-variant">
+                        <span class="flex items-center gap-xs">
+                            <span class="material-symbols-outlined text-[16px]">edit_document</span>
+                            Miêu Nị
+                        </span>
+                        <span class="px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant border border-outline-variant text-[11px] flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[12px]">language</span>
+                            Nguồn: Web
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Stats Grid -->
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-2 gap-sm w-full lg:w-auto lg:min-w-[360px]">
+            <div class="bg-surface-container border border-outline-variant/50 rounded-lg p-3 flex flex-col gap-1">
+                <div class="flex items-center justify-between text-on-surface-variant text-[11px] font-ui-label">
+                    <span class="">Tổng chương</span>
+                    <span class="material-symbols-outlined text-[14px]">list_alt</span>
+                </div>
+                <div class="text-title-sm text-on-surface">100</div>
+            </div>
+            <div class="bg-surface-container border border-outline-variant/50 rounded-lg p-3 flex flex-col gap-1">
+                <div class="flex items-center justify-between text-on-surface-variant text-[11px] font-ui-label">
+                    <span class="">Bản gốc</span>
+                    <span class="material-symbols-outlined text-[14px]">cloud_done</span>
+                </div>
+                <div class="text-title-sm text-on-surface">50</div>
+            </div>
+            <div class="bg-surface-container border border-outline-variant/50 rounded-lg p-3 flex flex-col gap-1">
+                <div class="flex items-center justify-between text-secondary text-[11px] font-ui-label">
+                    <span class="">Đã dịch</span>
+                    <span class="material-symbols-outlined text-[14px]">check_circle</span>
+                </div>
+                <div class="text-title-sm text-on-surface">20</div>
+            </div>
+            <div class="bg-surface-container border border-outline-variant/50 rounded-lg p-3 flex flex-col gap-1 processing-pulse">
+                <div class="flex items-center justify-between text-error text-[11px] font-ui-label">
+                    <span class="">Lỗi/Dịch</span>
+                    <span class="material-symbols-outlined text-[14px]">sync_problem</span>
+                </div>
+                <div class="text-title-sm text-on-surface">5</div>
+            </div>
+        </div>
+    </div>
+</div></section>
+<!-- Stats Grid -->
+
+<!-- Main Split Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-lg flex-1 min-h-[600px]">
+<!-- Left Column: Chapter List -->
+<section class="lg:col-span-8 flex flex-col bg-surface-container-low border border-outline-variant rounded-xl overflow-hidden shadow-lg shadow-black/20">
+<!-- Table Header Actions -->
+<div class="px-md py-sm border-b border-outline-variant bg-surface-container flex items-center justify-between">
+<h2 class="font-title-sm text-title-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">format_list_bulleted</span>
+                            Danh sách chương
+                        </h2>
+<div class="flex items-center gap-sm">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-2 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input class="bg-surface border border-outline-variant rounded-md py-1 pl-8 pr-3 text-ui-label font-ui-label text-on-surface placeholder:text-on-surface-variant focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary w-48 transition-all" placeholder="Tìm chương..." type="text">
+</div>
+<button class="p-1 rounded hover:bg-surface-variant text-on-surface-variant transition-colors" title="Lọc">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Scrollable Table Body -->
+<div class="flex-1 overflow-y-auto">
+<table class="w-full text-left border-collapse">
+<thead class="sticky top-0 bg-surface-container-highest/80 backdrop-blur border-b border-outline-variant z-10 font-ui-label text-ui-label text-on-surface-variant">
+<tr>
+<th class="py-sm px-md font-medium w-16">Index</th>
+<th class="py-sm px-md font-medium">Tiêu đề</th>
+<th class="py-sm px-md font-medium w-32">Trạng thái</th>
+<th class="py-sm px-md font-medium w-16 text-right">Action</th>
+</tr>
+</thead>
+<tbody class="font-ui-label text-ui-label text-on-surface divide-y divide-outline-variant/50">
+<!-- Row 1: Translated -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group">
+<td class="py-3 px-md text-on-surface-variant">1</td>
+<td class="py-3 px-md font-medium">Chương 1: Sơn Môn</td>
+<td class="py-3 px-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/10 text-secondary border border-secondary/20 text-[11px] font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px]">check</span>
+                                            Translated
+                                        </span>
+</td>
+<td class="py-3 px-md text-right">
+<button class="text-on-surface-variant hover:text-primary opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+</td>
+</tr>
+<!-- Row 2: Translated -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group">
+<td class="py-3 px-md text-on-surface-variant">2</td>
+<td class="py-3 px-md font-medium">Chương 2: Tẩy Kiếm</td>
+<td class="py-3 px-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary/10 text-secondary border border-secondary/20 text-[11px] font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px]">check</span>
+                                            Translated
+                                        </span>
+</td>
+<td class="py-3 px-md text-right">
+<button class="text-on-surface-variant hover:text-primary opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+</td>
+</tr>
+<!-- Row 3: Error -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group bg-error/5">
+<td class="py-3 px-md text-on-surface-variant">3</td>
+<td class="py-3 px-md font-medium text-error">Chương 3: Cửu Phong</td>
+<td class="py-3 px-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-error/10 text-error border border-error/20 text-[11px] font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px]">error</span>
+                                            Error
+                                        </span>
+</td>
+<td class="py-3 px-md text-right">
+<button class="text-error hover:text-error-container opacity-100 transition-all" title="Retry">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+</button>
+</td>
+</tr>
+<!-- Row 4: Pending Processing -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group">
+<td class="py-3 px-md text-on-surface-variant">4</td>
+<td class="py-3 px-md font-medium">Chương 4: Bạch Quỷ</td>
+<td class="py-3 px-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-[11px] font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px] animate-spin">sync</span>
+                                            Pending
+                                        </span>
+</td>
+<td class="py-3 px-md text-right">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant">more_horiz</span>
+</td>
+</tr>
+<!-- Row 5: Fetched (Raw only) -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group">
+<td class="py-3 px-md text-on-surface-variant">5</td>
+<td class="py-3 px-md font-medium text-on-surface-variant italic">Chương 5: Vân Hành (Raw)</td>
+<td class="py-3 px-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant text-[11px] font-semibold uppercase tracking-wider">
+<span class="material-symbols-outlined text-[12px]">download_done</span>
+                                            Fetched
+                                        </span>
+</td>
+<td class="py-3 px-md text-right">
+<button class="text-on-surface-variant hover:text-primary opacity-0 group-hover:opacity-100 transition-all" title="Bắt đầu dịch">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+</button>
+</td>
+</tr>
+<!-- Filler rows to show scroll -->
+<tr class="hover:bg-surface-container-highest/30 transition-colors group"><td class="py-3 px-md text-on-surface-variant">6</td><td class="py-3 px-md font-medium text-on-surface-variant italic">Chương 6: ...</td><td class="py-3 px-md"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant text-[11px] font-semibold uppercase tracking-wider"><span class="material-symbols-outlined text-[12px]">download_done</span>Fetched</span></td><td class="py-3 px-md text-right"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">more_horiz</span></td></tr>
+<tr class="hover:bg-surface-container-highest/30 transition-colors group"><td class="py-3 px-md text-on-surface-variant">7</td><td class="py-3 px-md font-medium text-on-surface-variant italic">Chương 7: ...</td><td class="py-3 px-md"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant border border-outline-variant text-[11px] font-semibold uppercase tracking-wider"><span class="material-symbols-outlined text-[12px]">download_done</span>Fetched</span></td><td class="py-3 px-md text-right"><span class="material-symbols-outlined text-[18px] text-on-surface-variant">more_horiz</span></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- Right Column: Settings & Glossary -->
+<section class="lg:col-span-4 flex flex-col gap-lg">
+<!-- Style Guide Card -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl flex flex-col shadow-lg shadow-black/20">
+<div class="px-md py-sm border-b border-outline-variant bg-surface-container flex items-center justify-between">
+<h3 class="font-title-sm text-title-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">draw</span>
+                                Style Guide
+                            </h3>
+</div>
+<div class="p-md flex flex-col gap-md">
+<p class="font-ui-caption text-ui-caption text-on-surface-variant">
+                                Nhập hướng dẫn về văn phong, cách xưng hô đặc thù cho truyện này. Prompt này sẽ được gộp vào khi gọi LLM.
+                            </p>
+<textarea class="w-full bg-surface border border-outline-variant rounded-md p-3 text-on-surface placeholder:text-outline focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-reading-body text-reading-body resize-none h-32 text-sm" placeholder="VD: Xưng hô nam chính là 'hắn', nữ chính là 'nàng'. Tông giọng lạnh lùng, tàn nhẫn. Giữ nguyên Hán Việt cho các chiêu thức kiếm pháp..."></textarea>
+<div class="flex justify-end">
+<button class="flex items-center gap-2 px-4 py-1.5 rounded bg-surface-variant border border-outline-variant text-on-surface hover:bg-surface-bright transition-colors font-ui-label text-ui-label">
+<span class="material-symbols-outlined text-[16px]">save</span>
+                                    Lưu style guide
+                                </button>
+</div>
+</div>
+</div>
+<!-- Glossary Card -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl flex flex-col shadow-lg shadow-black/20 flex-1 min-h-[300px]">
+<div class="px-md py-sm border-b border-outline-variant bg-surface-container flex items-center justify-between">
+<h3 class="font-title-sm text-title-sm text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px]">menu_book</span>
+                                Glossary (Thuật ngữ)
+                            </h3>
+<span class="bg-surface-variant text-on-surface-variant px-2 py-0.5 rounded text-[11px] font-mono">12 terms</span>
+</div>
+<!-- Add Term Form -->
+<div class="p-md border-b border-outline-variant/50 bg-surface-container-lowest/50">
+<div class="grid grid-cols-2 gap-2 mb-2">
+<input class="bg-surface border border-outline-variant rounded py-1 px-2 text-ui-caption font-ui-caption text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="Nguồn (Trung)" type="text">
+<input class="bg-surface border border-outline-variant rounded py-1 px-2 text-ui-caption font-ui-caption text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary" placeholder="Việt" type="text">
+</div>
+<div class="flex gap-2">
+<select class="flex-1 bg-surface border border-outline-variant rounded py-1 px-2 text-ui-caption font-ui-caption text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary">
+<option value="character">Nhân vật</option>
+<option value="location">Địa danh</option>
+<option value="sect">Tông môn</option>
+<option value="item">Pháp bảo</option>
+<option value="other">Khác</option>
+</select>
+<button class="px-3 py-1 bg-primary-container text-on-primary-container rounded flex items-center justify-center hover:brightness-110 transition-colors">
+<span class="material-symbols-outlined text-[16px]">add</span>
+</button>
+</div>
+</div>
+<!-- Term List -->
+<div class="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
+<div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-surface-variant group transition-colors">
+<div class="flex flex-col">
+<div class="flex items-center gap-2 font-ui-label text-ui-label text-on-surface">
+<span class="font-chinese text-on-surface-variant">景阳</span>
+<span class="material-symbols-outlined text-[12px] text-outline">arrow_forward</span>
+<span class="">Cảnh Dương</span>
+</div>
+<span class="text-[10px] text-primary-container uppercase tracking-wider font-semibold">Nhân vật</span>
+</div>
+<button class="text-outline hover:text-error opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+<div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-surface-variant group transition-colors">
+<div class="flex flex-col">
+<div class="flex items-center gap-2 font-ui-label text-ui-label text-on-surface">
+<span class="font-chinese text-on-surface-variant">青山宗</span>
+<span class="material-symbols-outlined text-[12px] text-outline">arrow_forward</span>
+<span class="">Thanh Sơn Tông</span>
+</div>
+<span class="text-[10px] text-tertiary uppercase tracking-wider font-semibold">Tông môn</span>
+</div>
+<button class="text-outline hover:text-error opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+<div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-surface-variant group transition-colors">
+<div class="flex flex-col">
+<div class="flex items-center gap-2 font-ui-label text-ui-label text-on-surface">
+<span class="font-chinese text-on-surface-variant">神末峰</span>
+<span class="material-symbols-outlined text-[12px] text-outline">arrow_forward</span>
+<span class="">Thần Mạt Phong</span>
+</div>
+<span class="text-[10px] text-secondary uppercase tracking-wider font-semibold">Địa danh</span>
+</div>
+<button class="text-outline hover:text-error opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[16px]">delete</span>
+</button>
+</div>
+<!-- Ambient empty state suggestion if list is short -->
+<div class="mt-4 flex flex-col items-center justify-center p-4 text-center opacity-50">
+<span class="material-symbols-outlined text-[24px] mb-2">library_add</span>
+<p class="font-ui-caption text-ui-caption">Thêm thuật ngữ để LLM dịch chuẩn xác hơn.</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+</div>
+
+
+
+
+
+
+
+
+
+
+</body></html>

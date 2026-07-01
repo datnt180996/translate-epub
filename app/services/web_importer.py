@@ -169,6 +169,8 @@ class ParsedNovel:
     title: str
     description: Optional[str]
     chapters: list["ParsedChapter"]
+    author: Optional[str] = None
+    cover_url: Optional[str] = None
 
 
 @dataclass
@@ -195,6 +197,75 @@ def _looks_like_chapter_link(href: str) -> bool:
     return False
 
 
+_AUTHOR_KEY_RE = re.compile(r"作者[：:\s]*([^\s/｜|·•\r\n]+)")
+_AUTHOR_KV_RE = re.compile(r"<[^>]*>\s*作者\s*</[^>]*>\s*<[^>]*>([^<]+)</[^>]*>", re.IGNORECASE)
+
+
+def _extract_author(soup: BeautifulSoup) -> Optional[str]:
+    if soup is None:
+        return None
+    for attr in ("og:author", "author"):
+        el = soup.find("meta", attrs={"name": attr}) or soup.find("meta", attrs={"property": attr})
+        if el and el.get("content"):
+            val = el["content"].strip()
+            if val:
+                return val
+    info = soup.select_one("#info, .bookinfo .info, .info, .book-info")
+    if info:
+        m = _AUTHOR_KV_RE.search(str(info))
+        if m:
+            return m.group(1).strip()
+        text = info.get_text("\n", strip=True)
+        m = _AUTHOR_KEY_RE.search(text)
+        if m:
+            return m.group(1).strip()
+    if soup.body:
+        m = _AUTHOR_KV_RE.search(str(soup.body))
+        if m:
+            return m.group(1).strip()
+        text = soup.body.get_text("\n", strip=True)
+        m = _AUTHOR_KEY_RE.search(text)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _extract_cover_url(soup: BeautifulSoup, base_url: str) -> Optional[str]:
+    if soup is None:
+        return None
+    for attr in ("og:image", "twitter:image", "image"):
+        el = (
+            soup.find("meta", attrs={"property": attr})
+            or soup.find("meta", attrs={"name": attr})
+        )
+        if el and el.get("content"):
+            url = _normalize_url(base_url, el["content"].strip())
+            if url:
+                return url
+    for sel in (
+        "#fmimg img",
+        "#sidebar img",
+        ".bookimg img",
+        ".bookinfo img",
+        ".cover img",
+        ".pic img",
+        ".pic_text img",
+        "#img img",
+    ):
+        el = soup.select_one(sel)
+        if el and el.get("src"):
+            url = _normalize_url(base_url, el["src"].strip())
+            if url:
+                return url
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src") or ""
+        if "/files/article/image/" in src or re.search(r"/image/\d+/\d+/\d+", src):
+            url = _normalize_url(base_url, src.strip())
+            if url:
+                return url
+    return None
+
+
 def parse_69shuba_index(html: str, base_url: str) -> ParsedNovel:
     soup = BeautifulSoup(html, "lxml")
 
@@ -203,6 +274,9 @@ def parse_69shuba_index(html: str, base_url: str) -> ParsedNovel:
 
     desc_el = soup.select_one("#intro, .intro, .bookinfo .desc, .description")
     description = desc_el.get_text(strip=True) if desc_el else None
+
+    author = _extract_author(soup)
+    cover_url = _extract_cover_url(soup, base_url)
 
     seen_urls: set[str] = set()
     chapters: list[ParsedChapter] = []
@@ -224,7 +298,13 @@ def parse_69shuba_index(html: str, base_url: str) -> ParsedNovel:
         text_clean = re.sub(r"\d{4}-\d{2}-\d{2}$", "", text).strip()
         chapters.append(ParsedChapter(title=text_clean, url=url))
 
-    return ParsedNovel(title=title, description=description, chapters=chapters)
+    return ParsedNovel(
+        title=title,
+        description=description,
+        author=author,
+        cover_url=cover_url,
+        chapters=chapters,
+    )
 
 
 def parse_chapter_text(html: str) -> str:
@@ -295,6 +375,10 @@ def import_from_url(url: str, timeout: int = 30, allow_curl_cffi: bool = True, a
                     novel.title = catalog_novel.title
                 if catalog_novel.description and not novel.description:
                     novel.description = catalog_novel.description
+                if not novel.author and catalog_novel.author:
+                    novel.author = catalog_novel.author
+                if not novel.cover_url and catalog_novel.cover_url:
+                    novel.cover_url = catalog_novel.cover_url
                 if len(catalog_novel.chapters) > len(novel.chapters):
                     novel.chapters = catalog_novel.chapters
             except Exception:
@@ -314,6 +398,9 @@ def parse_generic_index(html: str, base_url: str) -> ParsedNovel:
     if soup.title and soup.title.string:
         title = soup.title.string.strip()
 
+    author = _extract_author(soup)
+    cover_url = _extract_cover_url(soup, base_url)
+
     chapters: list[ParsedChapter] = []
     for a in soup.select("a"):
         href = a.get("href", "")
@@ -325,7 +412,13 @@ def parse_generic_index(html: str, base_url: str) -> ParsedNovel:
         url = _normalize_url(base_url, href)
         chapters.append(ParsedChapter(title=text, url=url))
 
-    return ParsedNovel(title=title or "Untitled", description=None, chapters=chapters)
+    return ParsedNovel(
+        title=title or "Untitled",
+        description=None,
+        author=author,
+        cover_url=cover_url,
+        chapters=chapters,
+    )
 
 
 def fetch_chapter_text(url: str, timeout: int = 30, allow_curl_cffi: bool = True, allow_playwright: bool = False) -> tuple[str, str]:

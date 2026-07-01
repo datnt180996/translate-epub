@@ -1,66 +1,138 @@
 {% extends "base.html" %}
-{% block title %}Trang chủ - Ebook Translator{% endblock %}
+{% block title %}Trang chủ - Dịch Hiệp{% endblock %}
 {% block content %}
-{% if not has_provider %}
-  <div class="alert error">Chưa cấu hình API key cho provider nào. Sửa file <code>.env</code> (<code>MINIMAX_API_KEY</code> / <code>DEEPSEEK_API_KEY</code>) rồi restart app để có thể dịch.</div>
-{% endif %}
-<div class="grid cols-2">
-  <div class="card">
-    <h3>Import từ URL web</h3>
-    <form method="post" action="/novels/import-url">
-      <label for="url">Link truyện (mục lục)</label>
-      <input type="url" id="url" name="url" placeholder="https://www.69shuba.com/book/51256.htm" required />
-      <div class="muted" style="margin-top:6px">
-        Hỗ trợ: 69shuba.com và các site có link chương dạng <code>.html</code>.
-      </div>
-      <div style="margin-top:12px">
-        <button type="submit">Import từ URL</button>
-      </div>
-    </form>
-  </div>
-  <div class="card">
-    <h3>Import từ file EPUB</h3>
-    <form method="post" action="/novels/import-epub" enctype="multipart/form-data">
-      <label for="epub">Chọn file .epub</label>
-      <input type="file" id="epub" name="epub" accept=".epub" required />
-      <div style="margin-top:12px">
-        <button type="submit">Import EPUB</button>
-      </div>
-    </form>
-  </div>
+
+<!-- Greeting -->
+<div class="page-greeting">
+  <h1>Xin chào! Hôm nay bạn muốn dịch truyện gì?</h1>
 </div>
 
-<div class="card">
-  <h3>Truyện đã import</h3>
-  {% if novels %}
-    <table class="glossary">
-      <thead>
-        <tr>
-          <th>Tiêu đề</th>
-          <th>Nguồn</th>
-          <th>Số chương</th>
-          <th>Ngày tạo</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for n in novels %}
-          <tr>
-            <td><a href="/novels/{{ n.id }}">{{ n.title }}</a></td>
-            <td><span class="badge {{ n.source_type == 'web' and 'fetched' or 'pending' }}">{{ n.source_type }}</span></td>
-            <td>{{ chapter_counts.get(n.id, 0) }}</td>
-            <td class="muted">{{ n.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>
-              <form method="post" action="/novels/{{ n.id }}/delete" style="display:inline" onsubmit="return confirm('Xóa truyện này?')">
-                <button type="submit" class="secondary danger">Xóa</button>
-              </form>
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">Chưa có truyện nào. Hãy import từ URL hoặc upload EPUB.</p>
-  {% endif %}
+<!-- API Configuration Warning -->
+{% if not has_provider %}
+  <div class="api-warn">
+    <span class="material-symbols-outlined fill api-warn-icon" data-icon="warning">warning</span>
+    <div class="api-warn-body">
+      <div class="api-warn-title">Chưa cấu hình API</div>
+      <div class="api-warn-desc">
+        Mở <a href="/settings/api">Cấu hình API</a> để nhập key cho <code>minimax</code>, <code>openrouter</code> hoặc <code>deepseek</code>.
+      </div>
+    </div>
+    <button type="button" class="api-warn-close" aria-label="Đóng" onclick="this.closest('.api-warn').style.display='none'">
+      <span class="material-symbols-outlined" data-icon="close">close</span>
+    </button>
+  </div>
+{% elif not has_default %}
+  <div class="api-warn">
+    <span class="material-symbols-outlined fill api-warn-icon" data-icon="warning">warning</span>
+    <div class="api-warn-body">
+      <div class="api-warn-title">Chưa chọn provider mặc định</div>
+      <div class="api-warn-desc">
+        Mở <a href="/settings/api">Cấu hình API</a> và bấm <b>Đặt làm mặc định</b> cho một provider đã cấu hình để có thể dịch chương.
+      </div>
+    </div>
+    <button type="button" class="api-warn-close" aria-label="Đóng" onclick="this.closest('.api-warn').style.display='none'">
+      <span class="material-symbols-outlined" data-icon="close">close</span>
+    </button>
+  </div>
+{% endif %}
+
+<!-- Import Options (Bento-style) -->
+<div class="import-grid">
+
+  <!-- Import from URL -->
+  <div class="import-card">
+    <div class="import-card-head">
+      <span class="material-symbols-outlined import-card-icon" data-icon="link">link</span>
+      <h3>Import từ URL</h3>
+    </div>
+    <p class="import-card-desc">Dán link từ các trang truyện web Trung Quốc để bắt đầu tải và dịch. Hỗ trợ tốt nhất <code>69shuba.com</code>.</p>
+    <form method="post" action="/novels/import-url" class="import-card-form">
+      <input type="url" name="url" placeholder="https://www.69shuba.com/book/51256.htm" required />
+      <button type="submit" class="btn-primary-solid">
+        <span>Import từ URL</span>
+        <span class="material-symbols-outlined" style="font-size:18px" data-icon="download">download</span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Import from EPUB -->
+  <div class="import-card" style="overflow:visible">
+    <div class="import-card-head">
+      <span class="material-symbols-outlined import-card-icon secondary" data-icon="upload_file">upload_file</span>
+      <h3>Import từ EPUB</h3>
+    </div>
+    <p class="import-card-desc">Tải lên file EPUB có sẵn từ máy tính của bạn để xử lý.</p>
+    <form method="post" action="/novels/import-epub" enctype="multipart/form-data" class="import-card-form" style="position:relative">
+      <label class="dropzone" for="epub-file-input">
+        <span class="material-symbols-outlined" data-icon="cloud_upload">cloud_upload</span>
+        <span class="dropzone-text">Kéo thả file EPUB vào đây<br>hoặc click để chọn file</span>
+        <span class="dropzone-filename" id="epub-filename" style="display:none"></span>
+        <input type="file" id="epub-file-input" name="epub" accept=".epub" required onchange="document.getElementById('epub-filename').textContent=this.files[0]?.name||'';document.getElementById('epub-filename').style.display=this.files.length?'block':'none'" />
+      </label>
+      <button type="submit" class="btn-outline">Import EPUB</button>
+    </form>
+  </div>
+
 </div>
+
+<!-- Novel List Section -->
+<section>
+  <div class="library-section-header">
+    <h2>Truyện đang theo dõi</h2>
+    <span class="library-count">{{ novels|length }} truyện</span>
+  </div>
+
+  {% if novels %}
+    <div class="novel-grid">
+      {% for n in novels %}
+        {% set novel_status = novel_statuses.get(n.id, 'pending') %}
+        {% set source_label = (n.source_type == 'web' or n.source_type == '69shuba') and 'Web' or (n.source_type == 'epub' and 'EPUB' or n.source_type|upper) %}
+        {% set cover_icon = (n.source_type == 'epub') and 'menu_book' or 'auto_stories' %}
+        {% set display_title = n.translated_title or n.title %}
+        {% set display_author = n.translated_author or n.author %}
+        <div class="glass-card" onclick="window.location.href='/novels/{{ n.id }}'">
+          <div class="glass-cover">
+            {% if n.cover_url %}
+              <img class="glass-cover-img" src="{{ n.cover_url }}" alt="{{ display_title }}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.add('show')">
+              <span class="material-symbols-outlined glass-cover-icon fallback" data-icon="{{ cover_icon }}">{{ cover_icon }}</span>
+            {% else %}
+              <span class="material-symbols-outlined glass-cover-icon" data-icon="{{ cover_icon }}">{{ cover_icon }}</span>
+            {% endif %}
+            <span class="cover-status status-{{ novel_status }}">{{ status_labels.get(novel_status, 'Đã import') }}</span>
+          </div>
+          <div class="glass-body">
+            <h4 class="glass-title">{{ display_title }}</h4>
+            {% if display_author %}
+              <p class="glass-author">{{ display_author }}</p>
+            {% else %}
+              <p class="glass-author">&nbsp;</p>
+            {% endif %}
+            <div class="glass-meta">
+              <span class="meta-source">
+                <span class="material-symbols-outlined" data-icon="{{ source_label == 'EPUB' and 'book' or 'language' }}">{{ source_label == 'EPUB' and 'book' or 'language' }}</span>
+                {{ source_label }}
+              </span>
+              <span>{{ chapter_counts.get(n.id, 0) }} chương</span>
+            </div>
+          </div>
+          <div class="glass-actions" onclick="event.stopPropagation()">
+            <a href="/novels/{{ n.id }}" class="btn secondary" style="flex:1; text-align:center">Mở truyện</a>
+            <form method="post" action="/novels/{{ n.id }}/delete" onsubmit="return confirm('Xóa truyện này? Tất cả chương và glossary sẽ bị xóa theo.')">
+              <button type="submit" class="icon-btn" title="Xóa truyện" aria-label="Xóa truyện">
+                <span class="material-symbols-outlined" data-icon="delete">delete</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="library-empty">
+      <span class="material-symbols-outlined library-empty-icon" data-icon="inbox">inbox</span>
+      <h3>Chưa có tài liệu nào</h3>
+      <p>Hãy import từ URL hoặc upload EPUB ở phía trên để bắt đầu.</p>
+    </div>
+  {% endif %}
+</section>
+
 {% endblock %}
