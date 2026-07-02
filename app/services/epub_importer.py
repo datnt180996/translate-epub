@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from sqlmodel import Session
 
 from ..models import Chapter, Novel
-from .chapter_cleaner import clean_html_to_text
+from .chapter_cleaner import clean_html_to_text, strip_chapter_boilerplate
 from .chapter_order import sort_chapters
 
 
@@ -164,7 +164,7 @@ def import_epub_file(session: Session, file_path: str, original_filename: Option
             index=index,
             title=chapter_title,
             source_url=item.get_name(),
-            raw_text=text,
+            raw_text=strip_chapter_boilerplate(text, chapter_title) or text,
             status="fetched",
         )
         session.add(chapter)

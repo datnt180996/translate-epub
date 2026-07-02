@@ -13,6 +13,7 @@ from app.services.chapter_cleaner import (
     line_count_mismatch,
     split_into_lines,
     split_into_paragraphs,
+    strip_chapter_boilerplate,
 )
 from app.services.web_importer import (
     parse_69shuba_index,
@@ -148,6 +149,23 @@ def test_line_count_mismatch_helper():
     assert join_lines(["A", "B", "", "C", ""]) == "A\nB\n\nC"
 
 
+def test_strip_chapter_boilerplate_removes_69shuba_header():
+    raw = "\n".join(
+        [
+            "第1054章 魔灵破朽",
+            "2024-06-25",
+            "作者： 耳根",
+            "第1054章 魔灵破朽",
+            "方圆万里的大地，如破碎的镜面，一片裂痕。",
+            "黑色的火，从裂缝内升腾。",
+        ]
+    )
+    cleaned = strip_chapter_boilerplate(raw, "第1054章 魔")
+    assert cleaned.splitlines()[0] == "方圆万里的大地，如破碎的镜面，一片裂痕。"
+    assert "作者" not in cleaned
+    assert "2024-06-25" not in cleaned
+
+
 def test_parse_69shuba_index_extracts_title_and_chapters():
     novel = parse_69shuba_index(SAMPLE_69SHUBA_INDEX, "https://www.69shuba.com/book/51256.htm")
     assert novel.title == "飞剑问道"
@@ -221,6 +239,7 @@ if __name__ == "__main__":
         test_chunk_preserves_blank_lines_as_paragraph_breaks,
         test_chunk_oversized_line_hard_splits,
         test_line_count_mismatch_helper,
+        test_strip_chapter_boilerplate_removes_69shuba_header,
         test_parse_69shuba_index_extracts_title_and_chapters,
         test_parse_chapter_text_extracts_content,
         test_parse_generic_index_fallback,

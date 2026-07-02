@@ -39,10 +39,12 @@ def _render(chapter: Chapter, chapters: list[Chapter], view: str = "vi") -> str:
         next_id=chapters[1].id if len(chapters) > 1 else None,
         view=view,
         display_status=_chapter_detail_status(chapter),
+        translation_quality="ok",
         chapter_items=[
             {"chapter": item, "display_status": _chapter_detail_status(item)}
             for item in chapters
         ],
+        chapter_quality_by_id={},
         providers=["minimax"],
         default_provider="minimax",
         has_provider=True,
@@ -96,7 +98,12 @@ def test_modal_can_lazy_load_when_route_context_is_stale():
         next_id=None,
         view="vi",
         default_provider="minimax",
+        translation_quality="ok",
+        chapter_quality_by_id={},
+        providers=["minimax"],
+        has_provider=True,
         job=None,
+        display_status="fetched",
         flash=None,
     )
     assert "Đang tải danh sách chương..." in html

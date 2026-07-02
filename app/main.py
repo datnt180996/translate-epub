@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import and_, case, func, not_
 from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -16,6 +19,7 @@ from .config import get_settings
 from .db import get_session, init_db
 from .models import Chapter, ChapterSummary, GlossaryTerm, Novel, StyleGuide
 from .services.epub_importer import import_epub_bytes
+from .services.epub_exporter import EpubExportError, export_translated_range
 from .services.glossary_service import (
     add_term,
     delete_term,
@@ -37,6 +41,20 @@ from .services.providers.factory import (
     invalidate_cache,
 )
 from .services.runner import get_last_error, is_translating, start_translation
+from .services.glossary_service import translation_quality_status
+from .services.fetch_runner import (
+    cleanup_stale_fetching,
+    is_fetching_novel,
+    start_fetch_all,
+)
+from .services.batch_translation_runner import (
+    cleanup_stale_translating,
+    eligible_count_for_novel,
+    filter_eligible_for_novel,
+    get_batch_state,
+    is_batch_translating_novel,
+    start_batch_translation,
+)
 from .services.web_service import fetch_chapter_raw, import_web_novel
 
 
@@ -57,10 +75,24 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+_log_startup = logging.getLogger("app.startup")
+
 
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    try:
+        reset = cleanup_stale_fetching()
+        if reset:
+            _log_startup.info("Reset %d chương fetching do restart", reset)
+    except Exception as exc:  # noqa: BLE001
+        _log_startup.warning("cleanup_stale_fetching thất bại: %s", exc)
+    try:
+        reset = cleanup_stale_translating()
+        if reset:
+            _log_startup.info("Reset %d chương translating do restart", reset)
+    except Exception as exc:  # noqa: BLE001
+        _log_startup.warning("cleanup_stale_translating thất bại: %s", exc)
 
 
 def _consume_flash(request: Request) -> Optional[dict]:
@@ -100,19 +132,229 @@ def _chapter_detail_status(chapter: Chapter) -> str:
     raw = getattr(chapter, "raw_text", None)
     translated = getattr(chapter, "translated_text", None)
     status = getattr(chapter, "status", "") or ""
-    if translated:
-        return "translated"
     if status in ("translating",):
         return "translating"
     if status in ("fetching",):
         return "fetching"
     if status == "error":
         return "error"
+    if translated:
+        return "translated"
     if status == "translated":
         return "translated"
     if raw:
         return "fetched"
     return "not_fetched"
+
+
+def _display_status_from_row(row: dict) -> str:
+    """Same priority order as `_chapter_detail_status` but works on lightweight row dicts."""
+    has_raw = bool(row.get("has_raw"))
+    has_translated = bool(row.get("has_translated"))
+    status = row.get("status", "") or ""
+    if status == "translating":
+        return "translating"
+    if status == "fetching":
+        return "fetching"
+    if status == "error":
+        return "error"
+    if has_translated:
+        return "translated"
+    if status == "translated":
+        return "translated"
+    if has_raw:
+        return "fetched"
+    return "not_fetched"
+
+
+def _batch_display_status(row: dict, batch_state: Optional[dict]) -> str:
+    """Overlay in-memory batch progress on the persisted chapter status."""
+    display_status = _display_status_from_row(row)
+    if not batch_state or display_status == "translated":
+        return display_status
+    chapter_id = row.get("id")
+    if chapter_id == batch_state.get("current_chapter_id"):
+        return "translating"
+    if chapter_id in set(batch_state.get("queued_chapter_ids") or []):
+        return "queue"
+    return display_status
+
+
+def _query_novel_chapter_rows(session: Session, novel_id: int) -> list[dict]:
+    """Query chapters without loading raw_text or translated_text content.
+
+    Returns lightweight row dicts sized for novel detail listing and stats
+    calculation. Mass-text columns stay on disk to avoid loading megabytes of
+    text per 1000+ chapter novel.
+    """
+    has_raw_col = Chapter.raw_text.isnot(None).label("has_raw")
+    has_translated_col = Chapter.translated_text.isnot(None).label("has_translated")
+    rows = session.exec(
+        select(
+            Chapter.id,
+            Chapter.novel_id,
+            Chapter.index,
+            Chapter.title,
+            Chapter.translated_title,
+            Chapter.source_url,
+            Chapter.status,
+            has_raw_col,
+            has_translated_col,
+        )
+        .where(Chapter.novel_id == novel_id)
+        .order_by(Chapter.index)
+    ).all()
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r.id,
+                "novel_id": r.novel_id,
+                "index": r.index,
+                "title": r.title,
+                "translated_title": r.translated_title,
+                "source_url": r.source_url,
+                "status": r.status or "",
+                "has_raw": bool(r.has_raw),
+                "has_translated": bool(r.has_translated),
+            }
+        )
+    return out
+
+
+def _chapter_row_from_chapter(chapter: Chapter) -> dict:
+    """Build a lightweight row dict from a full Chapter ORM object.
+
+    Used by single-chapter refresh paths (e.g. `/chapters/{id}/row`) so the
+    partial template can be rendered without exposing the full text fields.
+    """
+    quality: Optional[str] = None
+    translated_text = getattr(chapter, "translated_text", None)
+    raw_text = getattr(chapter, "raw_text", None)
+    if translated_text:
+        quality = translation_quality_status(translated_text, raw_text)
+    return {
+        "id": chapter.id,
+        "novel_id": chapter.novel_id,
+        "index": chapter.index,
+        "title": chapter.title,
+        "translated_title": chapter.translated_title,
+        "source_url": chapter.source_url,
+        "status": getattr(chapter, "status", "") or "",
+        "has_raw": bool(getattr(chapter, "raw_text", None)),
+        "has_translated": bool(getattr(chapter, "translated_text", None)),
+        "quality": quality,
+    }
+
+
+def _novel_stats_from_rows(rows: list[dict]) -> dict:
+    """Compute novel stats from lightweight row dicts (no text loaded)."""
+    translated = 0
+    translating = 0
+    fetching = 0
+    error = 0
+    raw = 0
+    not_fetched = 0
+    for row in rows:
+        d = _display_status_from_row(row)
+        if d == "translated":
+            translated += 1
+        elif d == "translating":
+            translating += 1
+        elif d == "fetching":
+            fetching += 1
+            raw += 1
+        elif d == "fetched":
+            raw += 1
+        elif d == "error":
+            error += 1
+        elif d == "not_fetched":
+            not_fetched += 1
+    return {
+        "total": len(rows),
+        "raw": raw,
+        "translated": translated,
+        "translating": translating,
+        "fetching": fetching,
+        "error": error,
+        "not_fetched": not_fetched,
+        "active_error": translating + fetching + error,
+    }
+
+
+def _novel_poll_active(
+    stats: dict,
+    *,
+    fetch_running: bool = False,
+    batch_state: Optional[dict] = None,
+) -> bool:
+    """Whether the novel detail page still needs background refreshes."""
+    return bool(
+        fetch_running
+        or batch_state is not None
+        or stats.get("translating", 0)
+        or stats.get("fetching", 0)
+    )
+
+
+def _novel_stats_aggregate(session: Session, novel_id: int) -> dict:
+    """Compute novel stats via SQL aggregates without loading chapter text."""
+    has_raw = Chapter.raw_text.isnot(None)
+    has_translated = Chapter.translated_text.isnot(None)
+    not_raw = not_(has_raw)
+    not_translated = not_(has_translated)
+    active_statuses = ["translating", "fetching", "error", "translated"]
+
+    def status_eq(value: str):
+        return Chapter.status == value
+
+    translated_count = func.sum(case((has_translated, 1), else_=0))
+    translating_count = func.sum(
+        case((and_(not_translated, status_eq("translating")), 1), else_=0)
+    )
+    fetching_count = func.sum(
+        case((and_(not_translated, status_eq("fetching")), 1), else_=0)
+    )
+    error_count = func.sum(
+        case((and_(not_translated, status_eq("error")), 1), else_=0)
+    )
+    translated_status_count = func.sum(
+        case((and_(not_translated, status_eq("translated")), 1), else_=0)
+    )
+    not_active = Chapter.status.notin_(active_statuses)
+    fetched_count = func.sum(
+        case((and_(has_raw, not_translated, not_active), 1), else_=0)
+    )
+    not_fetched_count = func.sum(
+        case((and_(not_raw, not_translated, not_active), 1), else_=0)
+    )
+    stmt = select(
+        func.count(Chapter.id).label("total"),
+        translated_count.label("translated"),
+        translating_count.label("translating"),
+        fetching_count.label("fetching"),
+        error_count.label("error"),
+        translated_status_count.label("translated_status"),
+        fetched_count.label("fetched"),
+        not_fetched_count.label("not_fetched"),
+    ).where(Chapter.novel_id == novel_id)
+    row = session.exec(stmt).one()
+    translated = (row.translated or 0) + (row.translated_status or 0)
+    translating = row.translating or 0
+    fetching = row.fetching or 0
+    error = row.error or 0
+    raw = (fetching or 0) + (row.fetched or 0)
+    not_fetched = row.not_fetched or 0
+    return {
+        "total": row.total or 0,
+        "raw": raw,
+        "translated": translated,
+        "translating": translating,
+        "fetching": fetching,
+        "error": error,
+        "not_fetched": not_fetched,
+        "active_error": translating + fetching + error,
+    }
 
 
 def _novel_stats_from_chapters(chapters: list[Chapter]) -> dict:
@@ -197,15 +439,22 @@ def _chapter_row_response(
     without having to do a target outerHTML parse of a bare `<tr>`.
     """
     session.refresh(chapter)
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel.id)).all())
-    novel_stats = _novel_stats_from_chapters(chapters)
+    chapter_row = _chapter_row_from_chapter(chapter)
+    display_status = _batch_display_status(chapter_row, get_batch_state(novel.id))
+    novel_stats = _novel_stats_aggregate(session, novel.id)
+    quality: Optional[str] = None
+    translated_text = getattr(chapter, "translated_text", None)
+    raw_text = getattr(chapter, "raw_text", None)
+    if translated_text:
+        quality = translation_quality_status(translated_text, raw_text)
+    chapter_row["quality"] = quality
     row_html = templates.get_template("partials/novel_chapter_row.html").render(
-        novel=novel, chapter=chapter, display_status=_chapter_detail_status(chapter),
+        novel=novel, chapter=chapter_row, display_status=display_status,
     )
     stats_html = ""
     if include_stats:
         stats_html = templates.get_template("partials/novel_stats.html").render(
-            novel=novel, stats=novel_stats, oob=True, poll_url=f"/novels/{novel.id}/stats",
+            novel=novel, stats=novel_stats, oob=True,
         )
     from fastapi.responses import Response
     body = "<table><tbody>" + row_html + "</tbody></table>" + stats_html
@@ -225,6 +474,14 @@ def _compute_novel_status(chapters: list[Chapter]) -> str:
     if not chapters:
         return "pending"
     statuses = {c.status for c in chapters}
+    return _novel_status_from_status_set(statuses)
+
+
+def _novel_status_from_status_set(statuses: set) -> str:
+    """Same priority logic as `_compute_novel_status` but takes a status set directly."""
+    if not statuses:
+        return "pending"
+    statuses = {s for s in statuses if s}
     if statuses & {"translating", "fetching"}:
         return "translating"
     if "error" in statuses:
@@ -242,9 +499,12 @@ def index(request: Request, session: Session = Depends(get_session)):
     chapter_counts: dict[int, int] = {}
     novel_statuses: dict[int, str] = {}
     for n in novels:
-        chs = list(session.exec(select(Chapter).where(Chapter.novel_id == n.id)).all())
-        chapter_counts[n.id] = len(chs)
-        novel_statuses[n.id] = _compute_novel_status(chs)
+        statuses_rows = session.exec(
+            select(Chapter.status).where(Chapter.novel_id == n.id)
+        ).all()
+        statuses = set(statuses_rows)
+        chapter_counts[n.id] = len(statuses_rows)
+        novel_statuses[n.id] = _novel_status_from_status_set(statuses)
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -268,6 +528,10 @@ async def import_url(request: Request, url: str = Form(...), session: Session = 
     except Exception as e:
         _set_flash(request, f"Lỗi import URL: {e}", "error")
         return RedirectResponse(url="/", status_code=303)
+    if bool(getattr(settings, "auto_fetch_after_import", True)):
+        started = start_fetch_all(novel.id)
+        if started:
+            _set_flash(request, "Đang tải toàn bộ nội dung chương ở chế độ nền.", "info")
     return RedirectResponse(url=f"/novels/{novel.id}", status_code=303)
 
 
@@ -309,27 +573,43 @@ def novel_detail(
     novel = session.get(Novel, novel_id)
     if novel is None:
         raise HTTPException(404, "Không tìm thấy truyện")
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel_id).order_by(Chapter.index)).all())
+    chapter_rows_data = _query_novel_chapter_rows(session, novel_id)
     glossary = list_glossary(session, novel_id)
     style_guide = get_style_guide(session, novel_id)
+    batch_state = get_batch_state(novel.id)
     chapter_rows = [
         {
-            "chapter": c,
+            "chapter": row,
             "novel": novel,
-            "display_status": _chapter_detail_status(c),
+            "display_status": _batch_display_status(row, batch_state),
         }
-        for c in chapters
+        for row in chapter_rows_data
     ]
+    stats = _novel_stats_from_rows(chapter_rows_data)
+    fetch_running = is_fetching_novel(novel.id)
+    pending_count = stats.get("not_fetched", 0) + stats.get("error", 0)
+    batch_translate_running = batch_state is not None
+    poll_active = _novel_poll_active(
+        stats,
+        fetch_running=fetch_running,
+        batch_state=batch_state,
+    )
+    eligible_translate_count = eligible_count_for_novel(novel.id)
     return templates.TemplateResponse(
         request,
         "novel.html",
         {
             "novel": novel,
-            "chapters": chapters,
+            "chapters": chapter_rows_data,
             "chapter_rows": chapter_rows,
             "glossary": glossary,
             "style_guide": style_guide,
-            "novel_stats": _novel_stats_from_chapters(chapters),
+            "novel_stats": stats,
+            "fetch_running": fetch_running,
+            "pending_count": pending_count,
+            "batch_translate_running": batch_translate_running,
+            "poll_active": poll_active,
+            "eligible_translate_count": eligible_translate_count,
             "active_nav": "home",
             "flash": _consume_flash(request),
         },
@@ -358,16 +638,31 @@ def novel_chapters_partial(
     novel = session.get(Novel, novel_id)
     if novel is None:
         raise HTTPException(404)
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel_id).order_by(Chapter.index)).all())
-    novel_stats = _novel_stats_from_chapters(chapters)
+    chapter_rows_data = _query_novel_chapter_rows(session, novel_id)
+    batch_state = get_batch_state(novel.id)
     rows_html = "".join(
         templates.get_template("partials/novel_chapter_row.html").render(
-            novel=novel, chapter=c, display_status=_chapter_detail_status(c),
+            novel=novel,
+            chapter=row,
+            display_status=_batch_display_status(row, batch_state),
         )
-        for c in chapters
+        for row in chapter_rows_data
     )
-    body = rows_html
-    return HTMLResponse(content=body)
+    novel_stats = _novel_stats_from_rows(chapter_rows_data)
+    poll_active = _novel_poll_active(
+        novel_stats,
+        fetch_running=is_fetching_novel(novel.id),
+        batch_state=batch_state,
+    )
+    stats_html = templates.get_template("partials/novel_stats.html").render(
+        novel=novel,
+        stats=novel_stats,
+        oob=True,
+    )
+    return HTMLResponse(
+        content=rows_html + stats_html,
+        headers={"X-Novel-Poll-Active": "1" if poll_active else "0"},
+    )
 
 
 @app.get("/novels/{novel_id}/stats", response_class=HTMLResponse)
@@ -379,12 +674,40 @@ def novel_stats_partial(
     novel = session.get(Novel, novel_id)
     if novel is None:
         raise HTTPException(404)
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel_id)).all())
-    novel_stats = _novel_stats_from_chapters(chapters)
+    novel_stats = _novel_stats_aggregate(session, novel_id)
     return templates.TemplateResponse(
         request,
         "partials/novel_stats.html",
-        {"novel": novel, "stats": novel_stats, "poll_url": f"/novels/{novel.id}/stats"},
+        {"novel": novel, "stats": novel_stats},
+    )
+
+
+@app.get("/novels/{novel_id}/export.epub")
+def export_novel_epub(
+    request: Request,
+    novel_id: int,
+    from_index: int,
+    to_index: int,
+    session: Session = Depends(get_session),
+):
+    novel = session.get(Novel, novel_id)
+    if novel is None:
+        raise HTTPException(404, "Không tìm thấy truyện")
+    try:
+        result = export_translated_range(session, novel, from_index, to_index)
+    except EpubExportError as exc:
+        _set_flash(request, f"Không thể xuất EPUB: {exc}", "error")
+        return RedirectResponse(url=f"/novels/{novel_id}", status_code=303)
+
+    quoted_filename = quote(result.filename)
+    return Response(
+        content=result.content,
+        media_type="application/epub+zip",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"{result.filename}\"; filename*=UTF-8''{quoted_filename}"
+            ),
+        },
     )
 
 
@@ -424,18 +747,74 @@ def delete_glossary_term(novel_id: int, term_id: int, session: Session = Depends
 
 
 @app.post("/novels/{novel_id}/fetch-all")
-def fetch_all(novel_id: int, session: Session = Depends(get_session)):
+def fetch_all(novel_id: int, request: Request, session: Session = Depends(get_session)):
     novel = session.get(Novel, novel_id)
     if novel is None:
-        raise HTTPException(404)
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == novel_id).order_by(Chapter.index)).all())
-    for ch in chapters:
-        if ch.source_url and not ch.raw_text:
-            try:
-                fetch_chapter_raw(session, ch)
-            except Exception:
-                pass
+        raise HTTPException(404, "Không tìm thấy truyện")
+    if is_fetching_novel(novel_id):
+        _set_flash(request, "Đang tải nội dung rồi, vui lòng đợi.", "info")
+        return RedirectResponse(url=f"/novels/{novel_id}", status_code=303)
+    if not start_fetch_all(novel_id):
+        _set_flash(request, "Không thể khởi động job tải.", "error")
+    else:
+        _set_flash(request, "Đang tải nội dung các chương còn thiếu ở chế độ nền.", "info")
     return RedirectResponse(url=f"/novels/{novel_id}", status_code=303)
+
+
+@app.post("/novels/{novel_id}/translate-selected")
+async def translate_selected(
+    novel_id: int,
+    request: Request,
+    chapter_ids: list[int] = Form(default=[]),
+    session: Session = Depends(get_session),
+):
+    novel = session.get(Novel, novel_id)
+    if novel is None:
+        raise HTTPException(404, "Không tìm thấy truyện")
+
+    is_htmx = (request.headers.get("HX-Request") or "").lower() == "true"
+
+    def finish(message: str, type_: str = "info", *, refresh: bool = False):
+        if is_htmx:
+            if refresh:
+                return novel_chapters_partial(request, novel_id, session)
+            return Response(
+                status_code=204,
+                headers={
+                    "HX-Trigger": json.dumps(
+                        {"novel-batch-notice": {"message": message, "type": type_}}
+                    )
+                },
+            )
+        _set_flash(request, message, type_)
+        return RedirectResponse(url=f"/novels/{novel_id}", status_code=303)
+
+    provider_name = default_provider(session)
+    if not provider_name:
+        return finish(
+            "Chưa có provider mặc định. Mở Cấu hình API và bấm \"Đặt làm mặc định\" cho một provider đã cấu hình.",
+            "error",
+        )
+
+    if not chapter_ids:
+        return finish("Chưa chọn chương nào để dịch.")
+
+    if is_batch_translating_novel(novel_id):
+        return finish("Đang có hàng đợi dịch cho truyện này, vui lòng đợi.")
+
+    eligible_ids = filter_eligible_for_novel(novel_id, chapter_ids)
+    if not eligible_ids:
+        return finish(
+            "Không có chương nào đủ điều kiện dịch (cần đã có nội dung gốc và chưa có bản dịch).",
+        )
+
+    started, count = start_batch_translation(novel_id, eligible_ids, provider_name)
+    if not started:
+        return finish("Không thể khởi động job dịch. Vui lòng thử lại.", "error")
+    return finish(
+        f"Đang dịch {count} chương đã chọn ở chế độ nền (provider {provider_name}).",
+        refresh=True,
+    )
 
 
 @app.get("/chapters/{chapter_id}", response_class=HTMLResponse)
@@ -465,6 +844,17 @@ def chapter_view(
         {"chapter": item, "display_status": _chapter_detail_status(item)}
         for item in chapters
     ]
+    translation_quality = translation_quality_status(
+        getattr(chapter, "translated_text", None),
+        getattr(chapter, "raw_text", None),
+    )
+    translation_quality_for_items = {
+        item["chapter"].id: translation_quality_status(
+            getattr(item["chapter"], "translated_text", None),
+            getattr(item["chapter"], "raw_text", None),
+        )
+        for item in chapter_items
+    }
     return templates.TemplateResponse(
         request,
         "chapter.html",
@@ -475,7 +865,9 @@ def chapter_view(
             "next_id": next_id,
             "view": view,
             "display_status": _chapter_detail_status(chapter),
+            "translation_quality": translation_quality,
             "chapter_items": chapter_items,
+            "chapter_quality_by_id": translation_quality_for_items,
             "providers": providers,
             "default_provider": default_provider(session),
             "has_provider": bool(providers),
@@ -573,7 +965,12 @@ def chapter_translate(
         return _detail_or_default_redirect(detail_call, safe_return, chapter_id, novel, chapter, session)
 
     pending_error = get_last_error(chapter_id)
+    previous_translated = chapter.translated_text or ""
+    previous_quality = translation_quality_status(previous_translated, chapter.raw_text)
+    if previous_translated and previous_quality == "bad":
+        chapter.translation_warning = None
     chapter.status = "translating"
+    chapter.error_message = None
     chapter.translation_provider = provider_name
     session.add(chapter)
     session.commit()

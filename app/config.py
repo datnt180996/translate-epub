@@ -34,8 +34,15 @@ class Settings(BaseSettings):
     translation_concurrency: int = 2
     translation_timeout: int = 600
     translation_max_retries: int = 2
+    translation_max_output_tokens: int = 8192
     auto_extract_glossary: bool = True
     auto_summarize_chapter: bool = True
+
+    auto_fetch_after_import: bool = True
+    fetch_batch_size: int = 50
+    fetch_concurrency: int = 3
+    fetch_request_delay: float = 0.3
+    fetch_max_retries: int = 2
 
 
 @lru_cache

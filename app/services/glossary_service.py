@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
@@ -7,7 +8,7 @@ from sqlmodel import Session, select
 
 from ..config import get_settings
 from ..models import Chapter, ChapterSummary, GlossaryTerm, Novel, StyleGuide
-from .chapter_cleaner import chunk_text, count_non_empty_lines, line_count_mismatch
+from .chapter_cleaner import chunk_text, count_non_empty_lines, line_count_mismatch, strip_chapter_boilerplate
 from .providers.base import TranslationContext
 from .providers.factory import get_provider
 from .providers.minimax import (
@@ -17,6 +18,58 @@ from .providers.minimax import (
     find_cjk_spans,
 )
 from . import translation_jobs as jobs
+
+
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+CJK_COUNT_LIMIT = 20
+CJK_RATIO_LIMIT = 0.05
+
+
+def _severe_line_count_mismatch(source_lines: int, translated_lines: int) -> bool:
+    if source_lines <= 0:
+        return False
+    if translated_lines <= 0:
+        return True
+    if source_lines <= 4:
+        return abs(source_lines - translated_lines) > 1
+    if translated_lines < int(source_lines * 0.85):
+        return True
+    if abs(source_lines - translated_lines) > 10:
+        return True
+    return False
+
+
+def _raise_if_severe_line_mismatch(source_text: str, translated_text: str, label: str) -> None:
+    source_lines, translated_lines = line_count_mismatch(source_text, translated_text)
+    if _severe_line_count_mismatch(source_lines, translated_lines):
+        raise RuntimeError(
+            f"Bản dịch thiếu/lệch dòng nghiêm trọng ở {label}: "
+            f"gốc {source_lines} dòng, dịch {translated_lines} dòng. "
+            "Không lưu bản dịch vì có thể bị cắt hoặc bỏ sót nội dung."
+        )
+
+
+def translation_quality_status(translated_text: Optional[str], raw_text: Optional[str]) -> str:
+    """Classify a translation result.
+
+    Returns one of:
+    - ``missing``: empty or only whitespace.
+    - ``bad``: identical to raw_text, or too many CJK characters survived.
+    - ``warning``: a few CJK characters survived but below bad threshold.
+    - ``ok``: no CJK characters detected.
+    """
+    if not translated_text or not translated_text.strip():
+        return "missing"
+    cjk_count = len(_CJK_RE.findall(translated_text))
+    length = max(len(translated_text), 1)
+    ratio = cjk_count / length
+    if raw_text and translated_text.strip() == raw_text.strip():
+        return "bad"
+    if cjk_count >= CJK_COUNT_LIMIT and ratio >= CJK_RATIO_LIMIT:
+        return "bad"
+    if cjk_count > 0:
+        return "warning"
+    return "ok"
 
 
 def get_style_guide(session: Session, novel_id: int) -> str:
@@ -110,10 +163,12 @@ def translate_chapter(
 
     provider = get_provider(session, provider_name)
     context = build_translation_context(session, novel, chapter)
+    source_text = strip_chapter_boilerplate(chapter.raw_text, chapter.title) or chapter.raw_text
 
-    chunks = chunk_text(chapter.raw_text, max_chars=max_chunk_chars)
+    chunks = chunk_text(source_text, max_chars=max_chunk_chars)
 
     chapter.status = "translating"
+    chapter.error_message = None
     chapter.translation_warning = None
     session.add(chapter)
     session.commit()
@@ -123,7 +178,7 @@ def translate_chapter(
 
     concurrency = max(1, min(settings.translation_concurrency, len(chunks) or 1))
 
-    def _translate_one(idx: int) -> tuple[int, str]:
+    def _translate_one(idx: int) -> tuple[int, str, Optional[str]]:
         translated = provider.translate(chunks[idx], context=context)
         if not translated or not translated.strip():
             raise RuntimeError(f"Provider trả về chunk dịch rỗng (chunk {idx + 1}).")
@@ -146,6 +201,7 @@ def translate_chapter(
                 if warning is None
                 else f"{warning}; vẫn còn chữ Hán ({examples})"
             )
+        _raise_if_severe_line_mismatch(chunks[idx], translated, f"chunk {idx + 1}")
         return idx, translated, warning
 
     translated_by_index: dict[int, str] = {}
@@ -168,6 +224,7 @@ def translate_chapter(
                     jobs.increment_progress(session, chapter.id, failed=bool(warn and "còn sót chữ Hán" in warn))
     except Exception as e:
         chapter.status = "error"
+        chapter.error_message = str(e)
         session.add(chapter)
         session.commit()
         jobs.mark_error(session, chapter.id, str(e))
@@ -177,19 +234,28 @@ def translate_chapter(
     translated_text = "\n".join(c for c in translated_chunks if c)
 
     alignment_warning: Optional[str] = None
-    src_lines, tgt_lines = line_count_mismatch(chapter.raw_text, translated_text)
+    src_lines, tgt_lines = line_count_mismatch(source_text, translated_text)
     if src_lines != tgt_lines:
         try:
             repair_user = (
-                f"### Bản gốc tiếng Trung\n{chapter.raw_text}\n\n"
+                f"### Bản gốc tiếng Trung\n{source_text}\n\n"
                 f"### Bản dịch tiếng Việt\n{translated_text}"
             )
             repaired = provider._chat(
                 LINE_ALIGNMENT_PROMPT, repair_user, temperature=0.0
             ).strip()
             if repaired:
-                new_src, new_tgt = line_count_mismatch(chapter.raw_text, repaired)
-                if new_src == new_tgt and new_src > 0:
+                repaired_quality = translation_quality_status(repaired, source_text)
+                repaired_cjk = len(_CJK_RE.findall(repaired))
+                pre_repair_cjk = len(_CJK_RE.findall(translated_text))
+                line_ok = False
+                new_src, new_tgt = line_count_mismatch(source_text, repaired)
+                line_ok = new_src == new_tgt and new_src > 0
+                if (
+                    line_ok
+                    and repaired_quality != "bad"
+                    and repaired_cjk <= max(pre_repair_cjk, 1)
+                ):
                     translated_text = repaired
                     src_lines, tgt_lines = new_src, new_tgt
                 else:
@@ -208,6 +274,16 @@ def translate_chapter(
                 f"Bản dịch không khớp số dòng gốc (gốc: {src_lines}, dịch: {tgt_lines})"
             )
 
+    try:
+        _raise_if_severe_line_mismatch(source_text, translated_text, "toàn chương")
+    except RuntimeError as mismatch_exc:
+        chapter.status = "error"
+        chapter.error_message = str(mismatch_exc)
+        session.add(chapter)
+        session.commit()
+        jobs.mark_error(session, chapter.id, chapter.error_message)
+        raise
+
     warnings = [w for w in (warnings_by_index[i] for i in range(len(chunks))) if w]
     if alignment_warning:
         warnings.append(alignment_warning)
@@ -216,9 +292,24 @@ def translate_chapter(
 
     if not translated_text or not translated_text.strip():
         chapter.status = "error"
+        chapter.error_message = "Bản dịch rỗng sau khi ghép chunks."
         session.add(chapter)
         session.commit()
+        jobs.mark_error(session, chapter.id, chapter.error_message)
         raise RuntimeError("Bản dịch rỗng sau khi ghép chunks.")
+
+    quality = translation_quality_status(translated_text, source_text)
+    if quality == "bad":
+        chapter.status = "error"
+        chapter.error_message = (
+            "Bản dịch còn quá nhiều chữ Hán hoặc giống bản gốc. "
+            "Vui lòng dịch lại."
+        )
+        chapter.translation_warning = None
+        session.add(chapter)
+        session.commit()
+        jobs.mark_error(session, chapter.id, chapter.error_message)
+        raise RuntimeError(chapter.error_message)
 
     chapter.translated_text = translated_text
     chapter.translation_provider = provider_name
@@ -247,7 +338,7 @@ def translate_chapter(
             terms = provider.extract_terms(
                 novel_title=novel.title,
                 chapter_title=chapter.title,
-                original_text=chapter.raw_text,
+                original_text=source_text,
                 translated_text=translated_text,
             )
             for term in terms:
@@ -274,7 +365,7 @@ def translate_chapter(
             summary = provider.summarize_chapter(
                 novel_title=novel.title,
                 chapter_title=chapter.title,
-                original_text=chapter.raw_text,
+                original_text=source_text,
                 translated_text=translated_text,
             )
             if summary:

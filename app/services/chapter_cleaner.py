@@ -63,6 +63,34 @@ def count_non_empty_lines(text: str) -> int:
     return sum(1 for line in text.split("\n") if line.strip())
 
 
+def strip_chapter_boilerplate(text: str, chapter_title: str = "") -> str:
+    """Remove common scraped metadata from the start of a chapter.
+
+    Web sources such as 69shuba often prepend title/date/author lines to the
+    actual chapter body. Translation prompts intentionally skip titles, so
+    leaving those lines in the source makes line-alignment checks noisy.
+    """
+    if not text:
+        return ""
+    lines = text.split("\n")
+    title = (chapter_title or "").strip()
+    title_re = re.compile(r"^第[\d一二三四五六七八九十百千万零〇两]+[章节卷集回].*")
+    date_re = re.compile(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$")
+    author_re = re.compile(r"^(作者|作\s*者)\s*[:：]")
+
+    cleaned: list[str] = []
+    scanning_header = True
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if scanning_header and idx < 8:
+            is_title = bool(title and (stripped == title or stripped.startswith(title) or title.startswith(stripped)))
+            if not stripped or is_title or title_re.match(stripped) or date_re.match(stripped) or author_re.match(stripped):
+                continue
+        scanning_header = False
+        cleaned.append(line)
+    return join_lines(cleaned).strip()
+
+
 def chunk_text(text: str, max_chars: int = 1800) -> list[str]:
     """Split text into chunks for translation.
 

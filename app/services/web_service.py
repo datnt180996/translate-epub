@@ -5,13 +5,27 @@ from typing import Optional
 
 from sqlmodel import Session
 
+from ..config import get_settings
 from ..models import Chapter, Novel
+from .chapter_cleaner import strip_chapter_boilerplate
 from .chapter_order import sort_chapters
 from .providers.factory import default_provider, get_provider
 from .web_importer import import_from_url, fetch_chapter_text
 
 
 _log = logging.getLogger(__name__)
+
+
+def _fetch_settings() -> dict:
+    try:
+        s = get_settings()
+        return {
+            "timeout": int(getattr(s, "request_timeout", 30) or 30),
+            "allow_curl_cffi": bool(getattr(s, "use_curl_cffi_fallback", True)),
+            "allow_playwright": bool(getattr(s, "use_playwright_fallback", False)),
+        }
+    except Exception:  # noqa: BLE001
+        return {"timeout": 30, "allow_curl_cffi": True, "allow_playwright": False}
 
 
 def _try_translate_metadata(session: Session, text: str, label: str) -> Optional[str]:
@@ -49,8 +63,20 @@ def _try_translate_author(session: Session, text: str) -> Optional[str]:
     return _try_translate_metadata(session, text, "author")
 
 
-def import_web_novel(session: Session, url: str, timeout: int = 30, allow_curl_cffi: bool = True, allow_playwright: bool = False) -> Novel:
-    parsed = import_from_url(url, timeout=timeout, allow_playwright=allow_playwright)
+def import_web_novel(session: Session, url: str, timeout: Optional[int] = None, allow_curl_cffi: Optional[bool] = None, allow_playwright: Optional[bool] = None) -> Novel:
+    cfg = _fetch_settings()
+    if timeout is None:
+        timeout = cfg["timeout"]
+    if allow_curl_cffi is None:
+        allow_curl_cffi = cfg["allow_curl_cffi"]
+    if allow_playwright is None:
+        allow_playwright = cfg["allow_playwright"]
+    parsed = import_from_url(
+        url,
+        timeout=timeout,
+        allow_curl_cffi=allow_curl_cffi,
+        allow_playwright=allow_playwright,
+    )
 
     novel = Novel(
         title=parsed.title or "Untitled",
@@ -95,21 +121,33 @@ def import_web_novel(session: Session, url: str, timeout: int = 30, allow_curl_c
     return novel
 
 
-def fetch_chapter_raw(session: Session, chapter: Chapter, timeout: int = 30, allow_curl_cffi: bool = True, allow_playwright: bool = False) -> Chapter:
+def fetch_chapter_raw(session: Session, chapter: Chapter, timeout: Optional[int] = None, allow_curl_cffi: Optional[bool] = None, allow_playwright: Optional[bool] = None) -> Chapter:
     if not chapter.source_url:
         return chapter
+    cfg = _fetch_settings()
+    if timeout is None:
+        timeout = cfg["timeout"]
+    if allow_curl_cffi is None:
+        allow_curl_cffi = cfg["allow_curl_cffi"]
+    if allow_playwright is None:
+        allow_playwright = cfg["allow_playwright"]
     chapter.status = "fetching"
     session.add(chapter)
     session.commit()
     session.refresh(chapter)
     try:
-        text, final_url = fetch_chapter_text(chapter.source_url, timeout=timeout, allow_curl_cffi=allow_curl_cffi, allow_playwright=allow_playwright)
+        text, final_url = fetch_chapter_text(
+            chapter.source_url,
+            timeout=timeout,
+            allow_curl_cffi=allow_curl_cffi,
+            allow_playwright=allow_playwright,
+        )
     except Exception:
         chapter.status = "error"
         session.add(chapter)
         session.commit()
         raise
-    chapter.raw_text = text
+    chapter.raw_text = strip_chapter_boilerplate(text, chapter.title) or text
     chapter.source_url = final_url
     chapter.status = "fetched"
     session.add(chapter)

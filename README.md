@@ -48,6 +48,7 @@ TRANSLATION_MAX_CHUNK_CHARS=5000   # lớn hơn -> ít lời gọi API hơn, nha
 TRANSLATION_CONCURRENCY=2          # số chunk dịch song song (1 tuần tự, 2-4 song song)
 TRANSLATION_TIMEOUT=600            # timeout mỗi lời gọi API (giây) — model reasoning cần lâu
 TRANSLATION_MAX_RETRIES=2          # thử lại khi timeout / 429 / 5xx
+TRANSLATION_MAX_OUTPUT_TOKENS=8192 # giới hạn token output, tránh provider cắt bản dịch giữa chừng
 AUTO_EXTRACT_GLOSSARY=true         # tự trích thuật ngữ sau khi dịch xong
 AUTO_SUMMARIZE_CHAPTER=true        # tự tóm tắt chương sau khi dịch xong
 ```

@@ -108,6 +108,23 @@ def _safe_json_array(text: str) -> list[dict]:
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 
 
+class ProviderFinishReasonError(RuntimeError):
+    def __init__(self, reason: str, usage: dict, details: str = ""):
+        self.reason = reason
+        self.usage = usage
+        self.details = details
+        detail_text = f" Chi tiết: {details}" if details else ""
+        super().__init__(
+            "Provider dừng trước khi hoàn tất "
+            f"(finish_reason={reason}, usage={usage})."
+            f"{detail_text} Không lưu bản dịch vì có thể bị thiếu nội dung."
+        )
+
+    @property
+    def retryable(self) -> bool:
+        return self.reason in {"error", "server_error", "timeout"}
+
+
 def contains_cjk(text: str) -> bool:
     return bool(text and _CJK_RE.search(text))
 
@@ -214,6 +231,9 @@ class OpenAICompatProvider:
         settings = get_settings()
         timeout_s = getattr(settings, "translation_timeout", 600) or 600
         max_retries = max(0, int(getattr(settings, "translation_max_retries", 2) or 0))
+        max_output_tokens = int(getattr(settings, "translation_max_output_tokens", 8192) or 0)
+        if max_output_tokens > 0:
+            payload["max_tokens"] = max_output_tokens
         last_exc: Optional[Exception] = None
         for attempt in range(max_retries + 1):
             try:
@@ -221,7 +241,22 @@ class OpenAICompatProvider:
                     resp = client.post(url, headers=self._headers(), json=payload)
                     resp.raise_for_status()
                     data = resp.json()
+                if is_minimax:
+                    base_resp = data.get("base_resp") or {}
+                    status_code = base_resp.get("status_code", 0)
+                    if status_code and status_code != 0:
+                        status_msg = base_resp.get("status_msg", "")
+                        raise RuntimeError(
+                            f"Minimax API lỗi (status_code={status_code}): {status_msg}"
+                        )
+                self._raise_for_finish_reason(data)
                 break
+            except ProviderFinishReasonError as e:
+                last_exc = e
+                if e.retryable and attempt < max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
             except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
                 last_exc = e
                 if attempt < max_retries:
@@ -236,21 +271,58 @@ class OpenAICompatProvider:
                     continue
                 raise
 
-        if is_minimax:
-            base_resp = data.get("base_resp") or {}
-            status_code = base_resp.get("status_code", 0)
-            if status_code and status_code != 0:
-                status_msg = base_resp.get("status_msg", "")
-                raise RuntimeError(
-                    f"Minimax API lỗi (status_code={status_code}): {status_msg}"
-                )
-
         content = self._extract_content(data)
         if not content or not content.strip():
             raise RuntimeError(
                 f"Provider trả về nội dung rỗng. Response: {str(data)[:500]}"
             )
         return content
+
+    @classmethod
+    def _raise_for_finish_reason(cls, data: dict) -> None:
+        finish_reason = cls._extract_finish_reason(data)
+        if finish_reason and finish_reason not in {"stop"}:
+            usage = data.get("usage") or {}
+            raise ProviderFinishReasonError(
+                finish_reason,
+                usage,
+                cls._extract_error_details(data),
+            )
+
+    @staticmethod
+    def _extract_finish_reason(data: dict) -> str:
+        choices = data.get("choices") or []
+        if not choices:
+            return ""
+        choice = choices[0] or {}
+        reasons = [choice.get("finish_reason"), choice.get("native_finish_reason")]
+        normalized = [str(reason).strip().lower() for reason in reasons if reason]
+        for reason in normalized:
+            if reason != "stop":
+                return reason
+        return normalized[0] if normalized else ""
+
+    @staticmethod
+    def _extract_error_details(data: dict) -> str:
+        details: list[object] = []
+        if data.get("error"):
+            details.append(data["error"])
+        choices = data.get("choices") or []
+        if choices:
+            choice = choices[0] or {}
+            for key in ("error", "native_finish_reason"):
+                if choice.get(key):
+                    details.append({key: choice[key]})
+            message = choice.get("message") or {}
+            if isinstance(message, dict) and message.get("error"):
+                details.append({"message_error": message["error"]})
+        if not details:
+            return ""
+        try:
+            text = json.dumps(details, ensure_ascii=False)
+        except Exception:
+            text = str(details)
+        return text[:800]
 
     @staticmethod
     def _extract_content(data: dict) -> str:

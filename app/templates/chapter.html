@@ -4,9 +4,11 @@
 {% block content %}
 {% set novel_title = novel.translated_title or novel.title %}
 {% set chapter_title = chapter.translated_title or chapter.title %}
-{% if chapter.translated_text %}
+{% if chapter.status in ['translating', 'fetching', 'error'] %}
+  {% set status = chapter.status %}
+{% elif chapter.translated_text %}
   {% set status = 'translated' %}
-{% elif chapter.status in ['translating', 'fetching', 'error', 'translated'] %}
+{% elif chapter.status == 'translated' %}
   {% set status = chapter.status %}
 {% elif chapter.raw_text %}
   {% set status = 'fetched' %}
@@ -50,6 +52,15 @@
               TẢI NỘI DUNG
             </button>
           </form>
+        {% elif translation_quality == 'bad' or chapter.status == 'error' %}
+          <form method="post" action="/chapters/{{ chapter.id }}/translate"
+                onsubmit="return confirm('Bản dịch hiện tại bị lỗi hoặc chưa đạt chất lượng. Dịch lại bằng provider {{ default_provider or 'mặc định' }}?');">
+            <input type="hidden" name="return_to" value="/chapters/{{ chapter.id }}">
+            <button type="submit" class="cr-action-button cr-action-button-retry" {% if status == 'translating' %}disabled{% endif %}>
+              <span class="material-symbols-outlined">refresh</span>
+              DỊCH LẠI
+            </button>
+          </form>
         {% elif status != 'translated' and default_provider %}
           <form method="post" action="/chapters/{{ chapter.id }}/translate"
                 onsubmit="return confirm('Dịch chương này bằng provider {{ default_provider }}? Có thể mất lâu tùy độ dài và provider.')">
@@ -81,6 +92,18 @@
       <div class="cr-alert cr-alert-warning">
         <strong>Cảnh báo chất lượng</strong>
         <span>{{ chapter.translation_warning }}</span>
+      </div>
+    {% endif %}
+
+    {% if translation_quality == 'bad' %}
+      <div class="cr-alert cr-alert-error">
+        <strong>Bản dịch lỗi</strong>
+        <span>Bản dịch hiện tại còn quá nhiều chữ Hán hoặc giống bản gốc. Hãy bấm <strong>Dịch lại</strong> ở trên để dịch lại chương này.</span>
+      </div>
+    {% elif translation_quality == 'warning' %}
+      <div class="cr-alert cr-alert-warning">
+        <strong>Cảnh báo nhẹ</strong>
+        <span>Bản dịch còn sót vài chữ Hán. Bấm Dịch lại nếu muốn dịch lại.</span>
       </div>
     {% endif %}
 
@@ -199,19 +222,21 @@
       {% for item in chapter_items|default([]) %}
         {% set list_chapter = item.chapter %}
         {% set list_status = item.display_status %}
+        {% set list_quality = chapter_quality_by_id.get(list_chapter.id) %}
         {% set list_title = list_chapter.translated_title or list_chapter.title %}
+        {% if list_status == 'translated' and list_quality == 'bad' %}
+          {% set status_label, status_class = 'Lỗi dịch', 'error' %}
+        {% else %}
+          {% set status_label = {'translated':'Đã dịch','translating':'Đang dịch','fetching':'Đang tải','fetched':'Đã tải','error':'Có lỗi'}.get(list_status, 'Chưa tải') %}
+          {% set status_class = list_status %}
+        {% endif %}
         <a href="/chapters/{{ list_chapter.id }}"
            class="cr-dialog-item {% if list_chapter.id == chapter.id %}active{% endif %}"
            data-search="{{ list_chapter.index }} chuong {{ list_chapter.index }} chương {{ list_chapter.index }} chapter {{ list_chapter.index }} {{ list_title }} {{ list_chapter.title }}">
           <span class="cr-dialog-index">{{ list_chapter.index }}</span>
           <span class="cr-dialog-title">{{ list_title }}</span>
-          <span class="cr-dialog-status cr-dialog-status-{{ list_status }}">
-            {% if list_status == 'translated' %}Đã dịch
-            {% elif list_status == 'translating' %}Đang dịch
-            {% elif list_status == 'fetching' %}Đang tải
-            {% elif list_status == 'fetched' %}Đã tải
-            {% elif list_status == 'error' %}Có lỗi
-            {% else %}Chưa tải{% endif %}
+          <span class="cr-dialog-status cr-dialog-status-{{ status_class }}">
+            {{ status_label }}
           </span>
         </a>
       {% endfor %}

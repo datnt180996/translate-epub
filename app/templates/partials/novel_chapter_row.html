@@ -1,18 +1,49 @@
 {% set chapter = chapter %}
 {% set novel = novel %}
 {% set display_status = display_status or 'not_fetched' %}
-{% set has_raw = chapter.raw_text %}
-{% set has_translated = chapter.translated_text %}
+{% set has_raw = chapter.has_raw if chapter.has_raw is defined else chapter.raw_text %}
+{% set has_translated = chapter.has_translated if chapter.has_translated is defined else chapter.translated_text %}
+{% set quality = chapter.quality if chapter.quality is defined else none %}
+{% set is_bad_quality = quality == 'bad' %}
 {% set title_text = chapter.translated_title or chapter.title %}
-{% set is_active = display_status in ('fetching', 'translating') %}
-<tr id="chapter-row-{{ chapter.id }}" class="nd-row {% if display_status == 'error' %}nd-row-error{% endif %} {% if display_status in ('fetching', 'translating') %}nd-row-active{% endif %}"
-    data-search="{{ (chapter.index ~ ' chuong ' ~ chapter.index ~ ' chương ' ~ chapter.index ~ ' chapter ' ~ chapter.index ~ ' ' ~ title_text ~ ' ' ~ chapter.title)|lower }}">
-  <td class="nd-idx">{{ chapter.index }}</td>
+{% set is_active = display_status in ('fetching', 'translating', 'queue') %}
+{% set batch_eligible = has_raw and not has_translated and display_status not in ('fetching', 'translating', 'queue') and not is_bad_quality %}
+<tr id="chapter-row-{{ chapter.id }}" class="nd-row {% if display_status == 'error' or is_bad_quality %}nd-row-error{% endif %} {% if display_status in ('fetching', 'translating') %}nd-row-active{% endif %}"
+    data-search="{{ (chapter.index ~ ' chuong ' ~ chapter.index ~ ' chương ' ~ chapter.index ~ ' chapter ' ~ chapter.index ~ ' ' ~ title_text ~ ' ' ~ chapter.title)|lower }}"
+    data-display-status="{{ display_status }}"
+    data-batch-eligible="{{ '1' if batch_eligible else '0' }}"
+    data-chapter-index="{{ chapter.index }}"
+    data-chapter-id="{{ chapter.id }}"
+    data-quality="{{ quality or '' }}"
+    {% if is_active %}
+    hx-get="/novels/{{ novel.id }}/chapters/{{ chapter.id }}/row"
+    hx-trigger="every 2s"
+    hx-target="this"
+    hx-swap="outerHTML"
+    hx-select="#chapter-row-{{ chapter.id }}"
+    hx-disabled-elt="this"
+    hx-on::before-request="this.setAttribute('aria-busy','1')"
+    hx-on::after-request="this.removeAttribute('aria-busy')"
+    {% endif %}>
+  <td class="nd-idx">
+    <label class="nd-select-cell">
+      <input type="checkbox" class="nd-batch-checkbox"
+             data-chapter-id="{{ chapter.id }}"
+             {% if not batch_eligible %}disabled{% endif %}
+             {% if batch_eligible %}aria-label="Chọn chương {{ chapter.index }}"{% endif %}>
+    </label>
+    <span class="nd-idx-num">{{ chapter.index }}</span>
+  </td>
   <td class="nd-title-cell {% if display_status == 'error' %}is-error{% elif display_status in ('not_fetched', 'fetched') and not has_translated %}is-pending{% endif %}">
     <a href="/chapters/{{ chapter.id }}">{{ title_text }}</a>
   </td>
   <td class="nd-status-cell">
-    {% if display_status == 'translated' %}
+    {% if display_status == 'translated' and is_bad_quality %}
+      <span class="nd-pill nd-pill-error" title="Bản dịch lỗi chất lượng: còn quá nhiều chữ Hán hoặc giống bản gốc.">
+        <span class="material-symbols-outlined">error</span>
+        Lỗi dịch
+      </span>
+    {% elif display_status == 'translated' %}
       <span class="nd-pill nd-pill-translated">
         <span class="material-symbols-outlined">check</span>
         Translated
@@ -26,6 +57,11 @@
       <span class="nd-pill nd-pill-translating">
         <span class="material-symbols-outlined nd-spin">sync</span>
         Translating
+      </span>
+    {% elif display_status == 'queue' %}
+      <span class="nd-pill nd-pill-queue">
+        <span class="material-symbols-outlined">schedule</span>
+        Queue
       </span>
     {% elif display_status == 'fetching' %}
       <span class="nd-pill nd-pill-fetching">
@@ -42,62 +78,6 @@
         <span class="material-symbols-outlined">cloud_off</span>
         Not Fetched
       </span>
-    {% endif %}
-  </td>
-  <td class="nd-action-cell">
-    {% if display_status in ('translating', 'fetching') %}
-      <span class="nd-action is-static" title="Đang xử lý">
-        <span class="material-symbols-outlined">more_horiz</span>
-      </span>
-    {% elif display_status == 'translated' %}
-      <a href="/chapters/{{ chapter.id }}" class="nd-action" title="Mở chương" aria-label="Mở chương">
-        <span class="material-symbols-outlined">edit</span>
-      </a>
-    {% elif display_status == 'fetched' and has_raw %}
-      <form method="post" action="/chapters/{{ chapter.id }}/translate"
-            hx-post="/chapters/{{ chapter.id }}/translate"
-            hx-target="body"
-            hx-swap="none"
-            style="display:inline"
-            onsubmit="return confirm('Dịch chương này?')">
-        <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
-        <button type="submit" class="nd-action" title="Bắt đầu dịch" aria-label="Bắt đầu dịch">
-          <span class="material-symbols-outlined">play_arrow</span>
-        </button>
-      </form>
-    {% elif display_status == 'error' %}
-      {% if has_raw %}
-        <form method="post" action="/chapters/{{ chapter.id }}/translate"
-              hx-post="/chapters/{{ chapter.id }}/translate"
-              hx-target="body"
-              hx-swap="none"
-              style="display:inline"
-              onsubmit="return confirm('Dịch lại chương này?')">
-          <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
-          <button type="submit" class="nd-action is-error" title="Retry" aria-label="Retry">
-            <span class="material-symbols-outlined">refresh</span>
-          </button>
-        </form>
-      {% else %}
-        <a href="/chapters/{{ chapter.id }}" class="nd-action is-error" title="Mở chương" aria-label="Mở chương">
-          <span class="material-symbols-outlined">refresh</span>
-        </a>
-      {% endif %}
-    {% elif display_status == 'not_fetched' and chapter.source_url %}
-      <form method="post" action="/chapters/{{ chapter.id }}/fetch"
-            hx-post="/chapters/{{ chapter.id }}/fetch"
-            hx-target="body"
-            hx-swap="none"
-            style="display:inline">
-        <input type="hidden" name="return_to" value="/novels/{{ novel.id }}">
-        <button type="submit" class="nd-action" title="Tải nội dung" aria-label="Tải nội dung">
-          <span class="material-symbols-outlined">download</span>
-        </button>
-      </form>
-    {% else %}
-      <a href="/chapters/{{ chapter.id }}" class="nd-action" title="Mở chương" aria-label="Mở chương">
-        <span class="material-symbols-outlined">edit</span>
-      </a>
     {% endif %}
   </td>
 </tr>
