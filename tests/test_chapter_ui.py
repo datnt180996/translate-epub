@@ -79,7 +79,12 @@ def test_reader_renders_parallel_content_and_searchable_modal():
     assert "Gốc:" not in html
     assert "Provider:" not in html
     assert '<button type="submit" class="cr-action-button"' not in html
-    assert html.index('class="cr-tabs"') < html.index('class="cr-chapter-nav"') < html.index('class="cr-reading-card')
+    assert html.index('class="cr-tabs"') < html.index('class="cr-reading-card') < html.index('class="cr-chapter-nav"')
+    assert 'id="openChapterList"' in html
+    assert 'ArrowLeft' in html
+    assert 'ArrowRight' in html
+    assert 'class="cr-floating-tools"' in html
+    assert html.index('class="cr-floating-tools"') > html.index('class="cr-chapter-nav"')
 
 
 def test_untranslated_chapter_keeps_translate_action():

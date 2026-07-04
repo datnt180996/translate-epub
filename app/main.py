@@ -1060,10 +1060,10 @@ def api_settings_save(
 ):
     name = (provider or "").lower()
     try:
-        save_provider_setting(
+        result = save_provider_setting(
             session,
             name,
-            api_key=api_key,
+            api_key=api_key.strip() or None,
             base_url=base_url,
             model=model,
             group_id=group_id,
@@ -1072,7 +1072,15 @@ def api_settings_save(
         _set_flash(request, str(e), "error")
         return RedirectResponse(url="/settings/api", status_code=303)
     invalidate_cache(name)
-    _set_flash(request, f"Đã lưu cấu hình cho {name}.", "success")
+    if result is None:
+        _set_flash(
+            request,
+            f"Không có gì thay đổi cho {name}. Để trống API key giữ nguyên key đã lưu; "
+            "dùng nút 'Xóa khỏi DB' để xóa cấu hình.",
+            "info",
+        )
+    else:
+        _set_flash(request, f"Đã lưu cấu hình cho {name}.", "success")
     return RedirectResponse(url="/settings/api", status_code=303)
 
 

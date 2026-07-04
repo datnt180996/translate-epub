@@ -83,12 +83,20 @@
             <label for="api_key_{{ cfg.provider }}">API Key</label>
             <div class="api-provider-key-wrap">
               <input type="password" id="api_key_{{ cfg.provider }}" name="api_key"
-                placeholder="{{ cfg.configured and 'Nhập key mới để thay thế' or 'Nhập API key...' }}"
+                placeholder="{{ cfg.configured and 'Để trống để giữ key hiện tại' or 'Nhập API key...' }}"
                 autocomplete="off" />
               <button type="button" class="api-provider-key-toggle" data-target="api_key_{{ cfg.provider }}" tabindex="-1" aria-label="Hiện/ẩn API key">
                 <span class="material-symbols-outlined">visibility_off</span>
               </button>
             </div>
+            {% if cfg.has_key %}
+              <div class="api-provider-key-hint">
+                Key hiện tại: <code>{{ cfg.masked_key }}</code>
+                {% if cfg.source == 'env' %}· đọc từ <code>.env</code>{% endif %}
+              </div>
+            {% else %}
+              <div class="api-provider-key-hint">Để trống và Lưu sẽ giữ nguyên key (nếu có).</div>
+            {% endif %}
           </div>
 
           <div>
@@ -118,7 +126,11 @@
 
           {% if cfg.source == 'web' %}
             <form method="post" action="/settings/api/{{ cfg.provider }}/clear" class="api-provider-action-form"
-              onsubmit="return confirm('Xóa cấu hình {{ cfg.provider }} trong DB?{% if is_default %} Provider mặc định sẽ bị bỏ.{% endif %} App sẽ quay về dùng .env nếu có.')">
+              data-confirm
+              data-confirm-title="Xóa cấu hình {{ cfg.provider }}?"
+              data-confirm-message="Cấu hình {{ cfg.provider }} trong DB sẽ bị xóa.{% if is_default %} Provider mặc định sẽ bị bỏ.{% endif %} App sẽ quay về dùng .env nếu có."
+              data-confirm-variant="danger"
+              data-confirm-confirm-label="Xóa khỏi DB">
               <button type="submit" class="btn-danger">
                 <span class="material-symbols-outlined">delete</span>
                 Xóa khỏi DB

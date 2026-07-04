@@ -117,7 +117,12 @@
           </div>
           <div class="glass-actions" onclick="event.stopPropagation()">
             <a href="/novels/{{ n.id }}" class="btn secondary" style="flex:1; text-align:center">Mở truyện</a>
-            <form method="post" action="/novels/{{ n.id }}/delete" onsubmit="return confirm('Xóa truyện này? Tất cả chương và glossary sẽ bị xóa theo.')">
+            <form method="post" action="/novels/{{ n.id }}/delete"
+              data-confirm
+              data-confirm-title="Xóa truyện?"
+              data-confirm-message="Tất cả chương và glossary của truyện này sẽ bị xóa theo. Hành động không thể hoàn tác."
+              data-confirm-variant="danger"
+              data-confirm-confirm-label="Xóa truyện">
               <button type="submit" class="icon-btn" title="Xóa truyện" aria-label="Xóa truyện">
                 <span class="material-symbols-outlined" data-icon="delete">delete</span>
               </button>

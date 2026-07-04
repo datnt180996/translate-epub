@@ -78,7 +78,11 @@
         <div class="nd-head-actions">
           {% if pending_count and pending_count > 0 %}
             <form method="post" action="/novels/{{ novel.id }}/fetch-all" style="display:inline"
-                  onsubmit="return confirm('Bắt đầu tải toàn bộ nội dung các chương còn thiếu ở chế độ nền?')">
+                  data-confirm
+                  data-confirm-title="Tải chương còn thiếu?"
+                  data-confirm-message="Bắt đầu tải toàn bộ nội dung các chương còn thiếu ở chế độ nền. Bạn có thể đóng tab, job vẫn chạy."
+                  data-confirm-variant="primary"
+                  data-confirm-confirm-label="Bắt đầu tải">
               <button type="submit" class="nd-btn" {% if fetch_running %}disabled{% endif %} title="Tải toàn bộ nội dung còn thiếu">
                 <span class="material-symbols-outlined {% if fetch_running %}nd-spin{% endif %}">cloud_download</span>
                 {% if fetch_running %}Đang tải nền{% else %}Tải chương còn thiếu{% endif %}
@@ -284,7 +288,12 @@
                   'cultivation': 'Cảnh giới'
                 }.get(t.category, t.category|capitalize) }}</span>
               </div>
-              <form method="post" action="/novels/{{ novel.id }}/glossary/{{ t.id }}/delete" style="display:inline" onsubmit="return confirm('Xóa thuật ngữ này?')">
+              <form method="post" action="/novels/{{ novel.id }}/glossary/{{ t.id }}/delete" style="display:inline"
+                    data-confirm
+                    data-confirm-title="Xóa thuật ngữ?"
+                    data-confirm-message="Thuật ngữ này sẽ bị xóa khỏi glossary. Bạn có thể thêm lại sau."
+                    data-confirm-variant="danger"
+                    data-confirm-confirm-label="Xóa">
                 <button type="submit" class="nd-term-delete" title="Xóa" aria-label="Xóa">
                   <span class="material-symbols-outlined">delete</span>
                 </button>
@@ -713,7 +722,7 @@
       updateBatchUI();
       htmx.trigger(document.body, 'novel-chapters-refresh');
       const message = event.detail?.message;
-      if (message) window.alert(message);
+      if (message) appToast(message, { kind: 'info' });
     });
 
     document.body.addEventListener('htmx:afterSwap', (event) => {

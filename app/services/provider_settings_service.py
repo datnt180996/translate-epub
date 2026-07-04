@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -111,21 +112,39 @@ def save_provider_setting(
     base_url: Optional[str] = None,
     model: Optional[str] = None,
     group_id: Optional[str] = None,
-) -> ProviderSetting:
+) -> Optional[ProviderSetting]:
+    """Persist provider overrides.
+
+    Semantics: ``api_key`` (and other fields) that are ``None`` or empty after
+    ``strip()`` mean "leave the existing value untouched". This lets the
+    settings form save just the model/base URL without forcing the user to
+    re-enter the API key, and lets ``clear_provider_setting`` remain the only
+    way to wipe an API key from the DB.
+    """
     name = (provider or "").lower()
     if name not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Provider không hỗ trợ: {name}")
     row = session.exec(select(ProviderSetting).where(ProviderSetting.provider == name)).first()
+
+    key_value = api_key.strip() if api_key is not None and api_key.strip() else None
+    base_value = base_url.strip() if base_url is not None and base_url.strip() else None
+    model_value = model.strip() if model is not None and model.strip() else None
+    group_value = group_id.strip() if group_id is not None and group_id.strip() else None
+
+    if row is None and key_value is None and base_value is None and model_value is None and group_value is None:
+        return None
+
     if row is None:
         row = ProviderSetting(provider=name)
-    if api_key is not None:
-        row.api_key = api_key.strip()
-    if base_url is not None:
-        row.base_url = base_url.strip()
-    if model is not None:
-        row.model = model.strip()
-    if group_id is not None:
-        row.group_id = group_id.strip()
+    if key_value is not None:
+        row.api_key = key_value
+    if base_value is not None:
+        row.base_url = base_value
+    if model_value is not None:
+        row.model = model_value
+    if group_value is not None:
+        row.group_id = group_value
+    row.updated_at = datetime.utcnow()
     session.add(row)
     session.commit()
     session.refresh(row)

@@ -140,7 +140,7 @@ Lưu ý hiện trạng:
 
 - `.env.example` chưa liệt kê ba biến OpenRouter dù `config.py` hỗ trợ chúng.
 - Một row `ProviderSetting` trong DB ghi đè toàn bộ cấu hình `.env` của provider đó. Xóa row mới quay lại fallback `.env`.
-- Form save hiện gửi API key rỗng nếu người dùng không nhập lại; service sẽ lưu chuỗi rỗng thay vì giữ key cũ.
+- Form save đã được chuẩn hoá: để trống ô API key sẽ giữ nguyên key đã lưu; nhập key mới sẽ thay thế. Chỉ nút **Xóa khỏi DB** mới xoá hoàn toàn key/config provider. Lưu không có thay đổi sẽ báo flash info thay vì success.
 
 ## 6. Data model và migration
 

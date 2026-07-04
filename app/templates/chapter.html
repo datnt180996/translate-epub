@@ -54,7 +54,11 @@
           </form>
         {% elif translation_quality == 'bad' or chapter.status == 'error' %}
           <form method="post" action="/chapters/{{ chapter.id }}/translate"
-                onsubmit="return confirm('Bản dịch hiện tại bị lỗi hoặc chưa đạt chất lượng. Dịch lại bằng provider {{ default_provider or 'mặc định' }}?');">
+                data-confirm
+                data-confirm-title="Dịch lại chương này?"
+                data-confirm-message="Bản dịch hiện tại bị lỗi hoặc chưa đạt chất lượng. Dịch lại bằng provider {{ default_provider or 'mặc định' }}?"
+                data-confirm-variant="warn"
+                data-confirm-confirm-label="Dịch lại">
             <input type="hidden" name="return_to" value="/chapters/{{ chapter.id }}">
             <button type="submit" class="cr-action-button cr-action-button-retry" {% if status == 'translating' %}disabled{% endif %}>
               <span class="material-symbols-outlined">refresh</span>
@@ -63,7 +67,11 @@
           </form>
         {% elif status != 'translated' and default_provider %}
           <form method="post" action="/chapters/{{ chapter.id }}/translate"
-                onsubmit="return confirm('Dịch chương này bằng provider {{ default_provider }}? Có thể mất lâu tùy độ dài và provider.')">
+                data-confirm
+                data-confirm-title="Dịch chương này?"
+                data-confirm-message="Dịch chương này bằng provider {{ default_provider }}? Có thể mất lâu tùy độ dài và provider."
+                data-confirm-variant="primary"
+                data-confirm-confirm-label="Bắt đầu dịch">
             <input type="hidden" name="return_to" value="/chapters/{{ chapter.id }}">
             <button type="submit" class="cr-action-button" {% if status == 'translating' %}disabled{% endif %}>
               <span class="material-symbols-outlined">translate</span>
@@ -134,25 +142,6 @@
     </nav>
   {% endif %}
 
-  <nav class="cr-chapter-nav" aria-label="Điều hướng chương">
-    {% if prev_id %}
-      <a href="/chapters/{{ prev_id }}"><span class="material-symbols-outlined">arrow_back</span>Chương trước</a>
-    {% else %}
-      <span class="cr-nav-disabled"><span class="material-symbols-outlined">arrow_back</span>Chương trước</span>
-    {% endif %}
-
-    <button type="button" class="cr-list-button" id="openChapterList">
-      <span class="material-symbols-outlined">list</span>
-      Danh sách
-    </button>
-
-    {% if next_id %}
-      <a href="/chapters/{{ next_id }}">Chương sau<span class="material-symbols-outlined">arrow_forward</span></a>
-    {% else %}
-      <span class="cr-nav-disabled">Chương sau<span class="material-symbols-outlined">arrow_forward</span></span>
-    {% endif %}
-  </nav>
-
   {% if not chapter.raw_text and not chapter.translated_text %}
     <section class="cr-empty">
       <span class="material-symbols-outlined">article</span>
@@ -204,7 +193,29 @@
     </section>
   {% endif %}
 
+  <nav class="cr-chapter-nav" aria-label="Điều hướng chương"
+       data-prev-url="{% if prev_id %}/chapters/{{ prev_id }}{% endif %}"
+       data-next-url="{% if next_id %}/chapters/{{ next_id }}{% endif %}">
+    {% if prev_id %}
+      <a href="/chapters/{{ prev_id }}" class="cr-nav-prev"><span class="material-symbols-outlined">arrow_back</span>Chương trước</a>
+    {% else %}
+      <span class="cr-nav-disabled cr-nav-prev"><span class="material-symbols-outlined">arrow_back</span>Chương trước</span>
+    {% endif %}
+
+    {% if next_id %}
+      <a href="/chapters/{{ next_id }}" class="cr-nav-next">Chương sau<span class="material-symbols-outlined">arrow_forward</span></a>
+    {% else %}
+      <span class="cr-nav-disabled cr-nav-next">Chương sau<span class="material-symbols-outlined">arrow_forward</span></span>
+    {% endif %}
+  </nav>
+
 </main>
+
+<aside class="cr-floating-tools" aria-label="Công cụ đọc">
+  <button type="button" class="cr-floating-button" id="openChapterList" aria-label="Mở danh sách chương" title="Danh sách chương">
+    <span class="material-symbols-outlined">list</span>
+  </button>
+</aside>
 
 <dialog class="cr-chapter-dialog" id="chapterListDialog" aria-labelledby="chapterListTitle">
   <div class="cr-dialog-shell">
@@ -367,6 +378,28 @@
     });
     search.addEventListener('input', applyFilter);
     applyFilter();
+
+    const chapterNav = document.querySelector('.cr-chapter-nav');
+    const prevUrl = chapterNav?.dataset.prevUrl || '';
+    const nextUrl = chapterNav?.dataset.nextUrl || '';
+    const isTypingTarget = (target) => {
+      if (!target) return false;
+      const tag = target.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+    };
+    document.addEventListener('keydown', (event) => {
+      if (event.defaultPrevented) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) return;
+      if (dialog.open) return;
+      if (isTypingTarget(event.target)) return;
+      if (event.key === 'ArrowLeft' && prevUrl) {
+        event.preventDefault();
+        window.location.assign(prevUrl);
+      } else if (event.key === 'ArrowRight' && nextUrl) {
+        event.preventDefault();
+        window.location.assign(nextUrl);
+      }
+    });
   })();
 </script>
 {% endblock %}
