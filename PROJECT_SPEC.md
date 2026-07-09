@@ -129,7 +129,7 @@ requirements.txt
 | `REQUEST_TIMEOUT` | `30` | Hiện chưa được route/service nối vào; service đang dùng default `30` riêng |
 | `USE_CURL_CFFI_FALLBACK` | `true` | Có trong settings nhưng hiện chưa được route import đọc |
 | `USE_PLAYWRIGHT_FALLBACK` | `false` | Có trong settings nhưng hiện chưa được route import đọc |
-| `TRANSLATION_MAX_CHUNK_CHARS` | `5000` | Đang dùng |
+| `TRANSLATION_MAX_CHUNK_CHARS` | `600` | Đang dùng; chunk nhỏ hơn giúp provider giữ đúng cấu trúc dòng hơn |
 | `TRANSLATION_CONCURRENCY` | `2` | Đang dùng, bị chặn trong khoảng `1..số chunk` |
 | `TRANSLATION_TIMEOUT` | `600` giây | Timeout mỗi API call |
 | `TRANSLATION_MAX_RETRIES` | `2` | Retry timeout/429/500/502/503/504 với exponential backoff |
@@ -154,7 +154,7 @@ Lưu ý hiện trạng:
 - Liên kết: `novel_id`; thứ tự: `index`.
 - Metadata: `title`, `translated_title`, `source_url`.
 - Nội dung: `raw_text`, `translated_text`.
-- Dịch: `translation_provider`, `status`, `error_message`, `translation_warning`.
+- Dịch: `translation_provider`, `status`, `error_message`, `translation_warning`, `failed_translation_draft`.
 - Thời gian: `created_at`, `updated_at`.
 
 ### Context dịch
@@ -254,15 +254,16 @@ Hai POST chapter chấp nhận `return_to`. `_safe_return_to()` chỉ cho phép 
 3. Runner đăng ký daemon thread trong dictionary in-memory.
 4. Worker reset `TranslationJob`, mở session mới và gọi `translate_chapter()`.
 5. Context gồm toàn bộ glossary, style guide, 5 summary gần nhất và title gốc của chapter.
-6. Raw text được chia theo paragraph; paragraph dài tách theo dấu câu rồi mới cắt theo ký tự.
+6. Raw text được chia thành các chunk nhỏ theo dòng, mặc định 600 ký tự để dễ giữ đúng cấu trúc dòng.
 7. Các chunk chạy bằng `ThreadPoolExecutor`; kết quả được ghép lại theo index gốc, không theo thứ tự hoàn thành.
 8. Mỗi chunk thành công tăng `done_chunks`; chunk vẫn còn CJK sau cleanup tăng `failed_chunks`. `current_chunk = done + failed`.
 9. Nếu output còn CJK, provider gọi lại `_chat()` với `CLEANUP_PROMPT` một lần. CJK còn lại tạo `translation_warning`, không tự fail cả chapter.
-10. Output rỗng hoặc exception làm chapter/job chuyển `error`.
-11. Thành công: lưu `translated_text`, `translation_provider`, `status="translated"`, job `done`.
-12. Nếu thiếu `translated_title`, provider dịch title sau khi phần nội dung hoàn tất.
-13. Glossary extraction và summary chạy tiếp trong cùng worker; exception của hai bước này bị bỏ qua.
-14. Runner lưu exception cuối vào `Chapter.error_message`, `TranslationJob.error_message` và cache `_last_errors`, sau đó gỡ task khỏi registry.
+10. Nếu một chunk lệch dòng, provider được gọi lại với `LINE_ALIGNMENT_PROMPT` để thử căn dòng trước khi báo lỗi nghiêm trọng.
+11. Output rỗng hoặc exception làm chapter/job chuyển `error`; draft lỗi được lưu vào `failed_translation_draft` khi có dữ liệu dịch nháp.
+12. Nếu thiếu `translated_title`, provider dịch title sau khi phần nội dung hoàn tất nhưng trước khi chuyển chương sang `translated`.
+13. Thành công: lưu `translated_text`, `translated_title`, `translation_provider`, `status="translated"`, job `done`.
+14. Glossary extraction và summary chạy tiếp trong cùng worker; exception của hai bước này bị bỏ qua.
+15. Runner lưu exception cuối vào `Chapter.error_message`, `TranslationJob.error_message` và cache `_last_errors`, sau đó gỡ task khỏi registry.
 
 Job được đánh dấu `done` trước khi extract glossary/summary hoàn tất. App restart sẽ mất registry thread; không có resume/recovery cho trạng thái DB còn dở.
 
@@ -278,7 +279,7 @@ Cả ba kế thừa `OpenAICompatProvider`:
 
 - Minimax dùng `{base_url}/text/chatcompletion_v2` khi base URL chứa `minimax`, kèm `reply_constraints` và optional `X-Group-Id`.
 - OpenRouter/DeepSeek dùng `{base_url}/chat/completions`.
-- Parser response hỗ trợ `choices[].message.content`, delta content, Minimax legacy `reply` và top-level `content`.
+- Parser response hỗ trợ `choices[].message.content`, delta content, `reasoning_content` khi `content` rỗng, Minimax legacy `reply` và top-level `content`.
 - `ping()` vẫn là một chat completion nhỏ yêu cầu trả `OK`, không phải endpoint health riêng.
 - Provider object được cache theo tên; save/clear/default route gọi `invalidate_cache()` phù hợp.
 

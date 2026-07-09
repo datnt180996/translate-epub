@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
 from sqlmodel import Session, select
+from sqlalchemy import func
 
 from ..db import engine
 from ..models import Chapter, Novel
@@ -98,12 +99,14 @@ def filter_eligible_for_novel(novel_id: int, candidate_ids: Iterable[int]) -> Li
 
 def eligible_count_for_novel(novel_id: int) -> int:
     with Session(engine) as session:
-        rows = list(
-            session.exec(
-                select(Chapter).where(Chapter.novel_id == novel_id)
-            ).all()
-        )
-    return sum(1 for c in rows if _is_eligible_for_batch(c))
+        count = session.exec(
+            select(func.count(Chapter.id))
+            .where(Chapter.novel_id == novel_id)
+            .where(Chapter.raw_text.isnot(None))
+            .where(Chapter.translated_text.is_(None))
+            .where(Chapter.status.notin_(("fetching", "translating")))
+        ).one()
+    return int(count or 0)
 
 
 def _mark_error_chapter(chapter_id: int, message: str) -> None:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -23,6 +25,12 @@ from . import translation_jobs as jobs
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 CJK_COUNT_LIMIT = 20
 CJK_RATIO_LIMIT = 0.05
+
+
+@dataclass
+class AlignmentRepairResult:
+    text: str
+    warning: Optional[str] = None
 
 
 def _severe_line_count_mismatch(source_lines: int, translated_lines: int) -> bool:
@@ -47,6 +55,47 @@ def _raise_if_severe_line_mismatch(source_text: str, translated_text: str, label
             f"gốc {source_lines} dòng, dịch {translated_lines} dòng. "
             "Không lưu bản dịch vì có thể bị cắt hoặc bỏ sót nội dung."
         )
+
+def _repair_line_alignment(
+    provider,
+    source_text: str,
+    translated_text: str,
+    label: str,
+) -> AlignmentRepairResult:
+    src_lines, tgt_lines = line_count_mismatch(source_text, translated_text)
+    if src_lines == tgt_lines:
+        return AlignmentRepairResult(translated_text)
+
+    repair_user = (
+        f"### Bản gốc tiếng Trung\n{source_text}\n\n"
+        f"### Bản dịch tiếng Việt\n{translated_text}"
+    )
+    repaired = provider._chat(LINE_ALIGNMENT_PROMPT, repair_user, temperature=0.0).strip()
+    if not repaired:
+        return AlignmentRepairResult(
+            translated_text,
+            f"{label}: không sửa được căn dòng vì provider trả về rỗng",
+        )
+
+    repaired_quality = translation_quality_status(repaired, source_text)
+    repaired_cjk = len(_CJK_RE.findall(repaired))
+    pre_repair_cjk = len(_CJK_RE.findall(translated_text))
+    new_src, new_tgt = line_count_mismatch(source_text, repaired)
+    if (
+        new_src == new_tgt
+        and new_src > 0
+        and repaired_quality != "bad"
+        and repaired_cjk <= max(pre_repair_cjk, 1)
+    ):
+        return AlignmentRepairResult(
+            repaired,
+            f"{label}: đã tự căn lại dòng (trước: {src_lines}/{tgt_lines}, sau: {new_src}/{new_tgt})",
+        )
+
+    return AlignmentRepairResult(
+        translated_text,
+        f"{label}: tự căn dòng chưa đạt (gốc: {src_lines}, dịch: {tgt_lines}, sau sửa: {new_tgt})",
+    )
 
 
 def translation_quality_status(translated_text: Optional[str], raw_text: Optional[str]) -> str:
@@ -170,6 +219,7 @@ def translate_chapter(
     chapter.status = "translating"
     chapter.error_message = None
     chapter.translation_warning = None
+    chapter.failed_translation_draft = None
     session.add(chapter)
     session.commit()
     session.refresh(chapter)
@@ -177,6 +227,12 @@ def translate_chapter(
     jobs.mark_running(session, chapter.id, total_chunks=len(chunks))
 
     concurrency = max(1, min(settings.translation_concurrency, len(chunks) or 1))
+
+    failed_drafts_by_index: dict[int, str] = {}
+    draft_lock = Lock()
+
+    def _add_warning(existing: Optional[str], message: str) -> str:
+        return message if existing is None else f"{existing}; {message}"
 
     def _translate_one(idx: int) -> tuple[int, str, Optional[str]]:
         translated = provider.translate(chunks[idx], context=context)
@@ -201,7 +257,22 @@ def translate_chapter(
                 if warning is None
                 else f"{warning}; vẫn còn chữ Hán ({examples})"
             )
-        _raise_if_severe_line_mismatch(chunks[idx], translated, f"chunk {idx + 1}")
+        label = f"chunk {idx + 1}"
+        src_lines, tgt_lines = line_count_mismatch(chunks[idx], translated)
+        if src_lines != tgt_lines:
+            try:
+                repaired = _repair_line_alignment(provider, chunks[idx], translated, label)
+                translated = repaired.text
+                if repaired.warning:
+                    warning = _add_warning(warning, repaired.warning)
+            except Exception as repair_exc:  # noqa: BLE001
+                warning = _add_warning(warning, f"{label}: tự căn dòng lỗi ({repair_exc})")
+        try:
+            _raise_if_severe_line_mismatch(chunks[idx], translated, label)
+        except RuntimeError:
+            with draft_lock:
+                failed_drafts_by_index[idx] = translated
+            raise
         return idx, translated, warning
 
     translated_by_index: dict[int, str] = {}
@@ -225,6 +296,11 @@ def translate_chapter(
     except Exception as e:
         chapter.status = "error"
         chapter.error_message = str(e)
+        if failed_drafts_by_index:
+            chapter.failed_translation_draft = "\n\n".join(
+                f"--- chunk {i + 1} ---\n{failed_drafts_by_index[i]}"
+                for i in sorted(failed_drafts_by_index)
+            )
         session.add(chapter)
         session.commit()
         jobs.mark_error(session, chapter.id, str(e))
@@ -279,6 +355,7 @@ def translate_chapter(
     except RuntimeError as mismatch_exc:
         chapter.status = "error"
         chapter.error_message = str(mismatch_exc)
+        chapter.failed_translation_draft = translated_text
         session.add(chapter)
         session.commit()
         jobs.mark_error(session, chapter.id, chapter.error_message)
@@ -301,6 +378,7 @@ def translate_chapter(
     quality = translation_quality_status(translated_text, source_text)
     if quality == "bad":
         chapter.status = "error"
+        chapter.failed_translation_draft = translated_text
         chapter.error_message = (
             "Bản dịch còn quá nhiều chữ Hán hoặc giống bản gốc. "
             "Vui lòng dịch lại."
@@ -311,15 +389,7 @@ def translate_chapter(
         jobs.mark_error(session, chapter.id, chapter.error_message)
         raise RuntimeError(chapter.error_message)
 
-    chapter.translated_text = translated_text
-    chapter.translation_provider = provider_name
-    chapter.status = "translated"
     from datetime import datetime
-    chapter.updated_at = datetime.utcnow()
-    session.add(chapter)
-    jobs.mark_done(session, chapter.id)
-    session.commit()
-    session.refresh(chapter)
 
     if not chapter.translated_title and chapter.title:
         try:
@@ -328,10 +398,16 @@ def translate_chapter(
             translated_title = ""
         if translated_title:
             chapter.translated_title = translated_title
-            chapter.updated_at = datetime.utcnow()
-            session.add(chapter)
-            session.commit()
-            session.refresh(chapter)
+
+    chapter.translated_text = translated_text
+    chapter.failed_translation_draft = None
+    chapter.translation_provider = provider_name
+    chapter.status = "translated"
+    chapter.updated_at = datetime.utcnow()
+    session.add(chapter)
+    jobs.mark_done(session, chapter.id)
+    session.commit()
+    session.refresh(chapter)
 
     if settings.auto_extract_glossary:
         try:

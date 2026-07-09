@@ -25,6 +25,7 @@ _SCHEMA_PATCHES: dict[str, dict[str, str]] = {
         "error_message": "TEXT",
         "translation_warning": "TEXT",
         "translated_title": "TEXT",
+        "failed_translation_draft": "TEXT",
     },
     "novel": {
         "translated_title": "TEXT",

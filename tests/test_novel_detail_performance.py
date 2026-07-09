@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.main import (
     _chapter_detail_status,
     _display_status_from_row,
+    _query_chapter_neighbors,
+    _query_homepage_chapter_meta,
     _novel_stats_aggregate,
     _novel_stats_from_rows,
     _novel_poll_active,
@@ -109,6 +111,55 @@ def test_novel_stats_aggregate_matches_legacy_counts():
         session.commit()
         agg = _novel_stats_aggregate(session, novel.id)
     assert agg == expected
+
+
+def test_homepage_chapter_meta_matches_per_novel_status_counts():
+    from sqlmodel import Session, SQLModel, create_engine
+
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        n1 = Novel(id=1, title="one", source_type="web")
+        n2 = Novel(id=2, title="two", source_type="web")
+        n3 = Novel(id=3, title="empty", source_type="web")
+        session.add_all([n1, n2, n3])
+        session.add_all(
+            [
+                Chapter(novel_id=1, index=1, title="c1", status="translated"),
+                Chapter(novel_id=1, index=2, title="c2", status="translated"),
+                Chapter(novel_id=2, index=1, title="c1", status="fetched"),
+                Chapter(novel_id=2, index=2, title="c2", status="error"),
+            ]
+        )
+        session.commit()
+
+        counts, statuses = _query_homepage_chapter_meta(session, [1, 2, 3])
+
+    assert counts == {1: 2, 2: 2, 3: 0}
+    assert statuses == {1: "translated", 2: "error", 3: "pending"}
+
+
+def test_chapter_neighbors_use_index_order():
+    from sqlmodel import Session, SQLModel, create_engine
+
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        novel = Novel(id=1, title="t", source_type="web")
+        session.add(novel)
+        session.add_all(
+            [
+                Chapter(id=10, novel_id=1, index=10, title="c10", raw_text="heavy text"),
+                Chapter(id=20, novel_id=1, index=20, title="c20", raw_text="heavy text"),
+                Chapter(id=30, novel_id=1, index=30, title="c30", raw_text="heavy text"),
+            ]
+        )
+        session.commit()
+        current = session.get(Chapter, 20)
+        prev_id, next_id = _query_chapter_neighbors(session, current)
+
+    assert prev_id == 10
+    assert next_id == 30
 
 
 def _render_novel_html(chapter_rows, *, fetch_running=False, batch_running=False, novel=None):
@@ -212,6 +263,10 @@ if __name__ == "__main__":
     print("PASS test_novel_stats_from_rows_matches_legacy_counts")
     test_novel_stats_aggregate_matches_legacy_counts()
     print("PASS test_novel_stats_aggregate_matches_legacy_counts")
+    test_homepage_chapter_meta_matches_per_novel_status_counts()
+    print("PASS test_homepage_chapter_meta_matches_per_novel_status_counts")
+    test_chapter_neighbors_use_index_order()
+    print("PASS test_chapter_neighbors_use_index_order")
     test_lightweight_row_template_renders_eligible_checkbox()
     print("PASS test_lightweight_row_template_renders_eligible_checkbox")
     test_table_uses_event_trigger_without_declarative_polling()

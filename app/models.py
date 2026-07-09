@@ -28,6 +28,7 @@ class Chapter(SQLModel, table=True):
     source_url: Optional[str] = None
     raw_text: Optional[str] = None
     translated_text: Optional[str] = None
+    failed_translation_draft: Optional[str] = None
     translation_provider: Optional[str] = None
     status: str = "pending"
     error_message: Optional[str] = None

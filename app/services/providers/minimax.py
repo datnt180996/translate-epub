@@ -135,6 +135,35 @@ def find_cjk_spans(text: str, max_examples: int = 3) -> list[str]:
     return _CJK_RE.findall(text)[:max_examples]
 
 
+def _clean_reasoning_fallback(text: str) -> str:
+    """Recover usable answer text when a provider puts it in reasoning_content."""
+    if not text:
+        return ""
+    stripped = text.strip()
+    if not stripped:
+        return ""
+
+    think_match = re.search(r"</think>\s*(.+)$", stripped, re.DOTALL | re.IGNORECASE)
+    if think_match:
+        stripped = think_match.group(1).strip()
+
+    lines = stripped.splitlines()
+    while lines:
+        first = lines[0].strip()
+        if not first:
+            lines.pop(0)
+            continue
+        if contains_cjk(first) and len(first) <= 40:
+            lines.pop(0)
+            continue
+        lowered = first.lower()
+        if lowered.startswith(("hmm", "let me", "i need", "we need", "okay", "ok,")):
+            lines.pop(0)
+            continue
+        break
+    return "\n".join(lines).strip()
+
+
 CLEANUP_PROMPT = (
     "Bản dịch tiếng Việt dưới đây vẫn còn sót chữ Hán (ví dụ: 一头, 只, đạo, 个, hoặc bất kỳ CJK nào). "
     "Hãy viết lại toàn bộ bằng tiếng Việt thuần, giữ nguyên cấu trúc dòng (số dòng tách bằng \\n phải khớp với bản gốc đã cho), "
@@ -257,7 +286,7 @@ class OpenAICompatProvider:
                     time.sleep(2 ** attempt)
                     continue
                 raise
-            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
+            except httpx.TransportError as e:
                 last_exc = e
                 if attempt < max_retries:
                     time.sleep(2 ** attempt)
@@ -333,9 +362,19 @@ class OpenAICompatProvider:
             content = message.get("content")
             if content:
                 return content
+            reasoning_content = _clean_reasoning_fallback(
+                str(message.get("reasoning_content") or "")
+            )
+            if reasoning_content:
+                return reasoning_content
             delta = choices[0].get("delta") or {}
             if delta.get("content"):
                 return delta["content"]
+            delta_reasoning_content = _clean_reasoning_fallback(
+                str(delta.get("reasoning_content") or "")
+            )
+            if delta_reasoning_content:
+                return delta_reasoning_content
             messages = message.get("messages") or []
             if messages:
                 last = messages[-1]

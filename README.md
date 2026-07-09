@@ -44,7 +44,7 @@ DEEPSEEK_API_KEY=your_key
 DEEPSEEK_MODEL=deepseek-chat
 
 # Tốc độ & chất lượng dịch
-TRANSLATION_MAX_CHUNK_CHARS=5000   # lớn hơn -> ít lời gọi API hơn, nhanh hơn
+TRANSLATION_MAX_CHUNK_CHARS=600    # nhỏ hơn -> dễ giữ đúng từng dòng hơn
 TRANSLATION_CONCURRENCY=2          # số chunk dịch song song (1 tuần tự, 2-4 song song)
 TRANSLATION_TIMEOUT=600            # timeout mỗi lời gọi API (giây) — model reasoning cần lâu
 TRANSLATION_MAX_RETRIES=2          # thử lại khi timeout / 429 / 5xx

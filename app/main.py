@@ -222,6 +222,50 @@ def _query_novel_chapter_rows(session: Session, novel_id: int) -> list[dict]:
     return out
 
 
+def _query_homepage_chapter_meta(session: Session, novel_ids: list[int]) -> tuple[dict[int, int], dict[int, str]]:
+    """Return chapter counts and status summaries for all homepage novels at once."""
+    if not novel_ids:
+        return {}, {}
+    rows = session.exec(
+        select(
+            Chapter.novel_id,
+            Chapter.status,
+            func.count(Chapter.id).label("chapter_count"),
+        )
+        .where(Chapter.novel_id.in_(novel_ids))
+        .group_by(Chapter.novel_id, Chapter.status)
+    ).all()
+    chapter_counts = {novel_id: 0 for novel_id in novel_ids}
+    status_sets: dict[int, set] = {novel_id: set() for novel_id in novel_ids}
+    for row in rows:
+        chapter_counts[row.novel_id] = chapter_counts.get(row.novel_id, 0) + (row.chapter_count or 0)
+        status_sets.setdefault(row.novel_id, set()).add(row.status)
+    novel_statuses = {
+        novel_id: _novel_status_from_status_set(status_sets.get(novel_id, set()))
+        for novel_id in novel_ids
+    }
+    return chapter_counts, novel_statuses
+
+
+def _query_chapter_neighbors(session: Session, chapter: Chapter) -> tuple[Optional[int], Optional[int]]:
+    """Find previous/next chapter ids without loading every chapter body."""
+    prev_id = session.exec(
+        select(Chapter.id)
+        .where(Chapter.novel_id == chapter.novel_id)
+        .where(Chapter.index < chapter.index)
+        .order_by(Chapter.index.desc())
+        .limit(1)
+    ).first()
+    next_id = session.exec(
+        select(Chapter.id)
+        .where(Chapter.novel_id == chapter.novel_id)
+        .where(Chapter.index > chapter.index)
+        .order_by(Chapter.index)
+        .limit(1)
+    ).first()
+    return prev_id, next_id
+
+
 def _chapter_row_from_chapter(chapter: Chapter) -> dict:
     """Build a lightweight row dict from a full Chapter ORM object.
 
@@ -496,15 +540,10 @@ def _novel_status_from_status_set(statuses: set) -> str:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, session: Session = Depends(get_session)):
     novels = list(session.exec(select(Novel).order_by(Novel.id.desc())).all())
-    chapter_counts: dict[int, int] = {}
-    novel_statuses: dict[int, str] = {}
-    for n in novels:
-        statuses_rows = session.exec(
-            select(Chapter.status).where(Chapter.novel_id == n.id)
-        ).all()
-        statuses = set(statuses_rows)
-        chapter_counts[n.id] = len(statuses_rows)
-        novel_statuses[n.id] = _novel_status_from_status_set(statuses)
+    chapter_counts, novel_statuses = _query_homepage_chapter_meta(
+        session,
+        [n.id for n in novels if n.id is not None],
+    )
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -828,33 +867,20 @@ def chapter_view(
     if chapter is None:
         raise HTTPException(404)
     novel = session.get(Novel, chapter.novel_id)
-    chapters = list(session.exec(select(Chapter).where(Chapter.novel_id == chapter.novel_id).order_by(Chapter.index)).all())
-    prev_id = next_id = None
-    for i, c in enumerate(chapters):
-        if c.id == chapter_id:
-            if i > 0:
-                prev_id = chapters[i - 1].id
-            if i < len(chapters) - 1:
-                next_id = chapters[i + 1].id
-            break
+    prev_id, next_id = _query_chapter_neighbors(session, chapter)
     providers = available_providers(session) or []
     from .services import translation_jobs as jobs
     job = jobs.get(session, chapter_id)
+    chapter_rows_data = _query_novel_chapter_rows(session, chapter.novel_id)
     chapter_items = [
-        {"chapter": item, "display_status": _chapter_detail_status(item)}
-        for item in chapters
+        {"chapter": item, "display_status": _display_status_from_row(item)}
+        for item in chapter_rows_data
     ]
     translation_quality = translation_quality_status(
         getattr(chapter, "translated_text", None),
         getattr(chapter, "raw_text", None),
     )
-    translation_quality_for_items = {
-        item["chapter"].id: translation_quality_status(
-            getattr(item["chapter"], "translated_text", None),
-            getattr(item["chapter"], "raw_text", None),
-        )
-        for item in chapter_items
-    }
+    translation_quality_for_items = {chapter.id: translation_quality}
     return templates.TemplateResponse(
         request,
         "chapter.html",

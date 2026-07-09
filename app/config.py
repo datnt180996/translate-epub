@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     use_curl_cffi_fallback: bool = True
     use_playwright_fallback: bool = False
 
-    translation_max_chunk_chars: int = 1000
+    translation_max_chunk_chars: int = 600
     translation_concurrency: int = 2
     translation_timeout: int = 600
     translation_max_retries: int = 2

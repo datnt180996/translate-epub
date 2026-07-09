@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Iterable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,6 +21,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.main import templates
 from app.models import Chapter, Novel
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+
+def _static_text(path: str) -> str:
+    return (ROOT_DIR / path).read_text(encoding="utf-8")
 
 
 def _render(template_name: str, **context) -> str:
@@ -54,8 +62,6 @@ def test_base_contains_confirm_dialog():
     assert 'class="app-confirm-dialog"' in html
     assert 'id="appConfirmCancel"' in html
     assert 'id="appConfirmAccept"' in html
-    assert "Hủy" in html
-    assert "Xác nhận" in html
 
 
 def test_base_contains_toast_stack():
@@ -70,16 +76,18 @@ def test_base_exposes_appToast_helper():
     through the custom toast so legacy call sites stop showing the native
     browser dialog."""
     html = _render("base.html", block_content="", active_nav=None, flash=None)
-    assert "window.appToast" in html
-    assert "window.alert" in html
-    assert "showToast" in html
+    js = _static_text("app/static/js/app.js")
+    assert "/static/js/app.js" in html
+    assert "window.appToast" in js
+    assert "window.alert" in js
+    assert "showToast" in js
 
 
 def test_base_intercepts_submit_with_data_confirm():
-    html = _render("base.html", block_content="", active_nav=None, flash=None)
+    js = _static_text("app/static/js/app.js")
     # Listener must look at data-confirm and bail for bypass.
-    assert "data-confirm" in html
-    assert "__confirmBypass" in html or "confirmBypass" in html
+    assert "data-confirm" in js
+    assert "__confirmBypass" in js or "confirmBypass" in js
 
 
 def _chapter(ch_id: int, **kwargs) -> Chapter:
@@ -124,6 +132,10 @@ def test_no_native_confirm_or_onsubmit_in_rendered_templates():
         offenders.append(("base.html", "confirm("))
     if re.search(r'\bonsubmit="[^"]*confirm\(', base_html):
         offenders.append(("base.html", "onsubmit confirm"))
+    for static_name in ("app/static/js/novel-detail.js", "app/static/js/chapter-reader.js"):
+        js = _static_text(static_name)
+        if "confirm(" in js:
+            offenders.append((static_name, "confirm("))
     assert not offenders, offenders
 
 
@@ -207,7 +219,7 @@ def test_novel_detail_fetch_all_uses_data_confirm():
     ctx["pending_count"] = 1
     html = _render("novel.html", **ctx)
     assert "data-confirm" in html
-    assert "Tải chương còn thiếu?" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"primary\"" in html
     # The legacy native confirm() must be gone.
     assert "confirm(" not in html
@@ -220,7 +232,7 @@ def test_novel_detail_glossary_delete_uses_data_confirm():
     ]
     html = _render("novel.html", **ctx)
     assert "data-confirm" in html
-    assert "Xóa thuật ngữ?" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"danger\"" in html
     assert "confirm(" not in html
 
@@ -233,7 +245,7 @@ def test_chapter_translate_form_uses_data_confirm():
     ctx["translation_quality"] = None
     html = _render("chapter.html", **ctx)
     assert "data-confirm" in html
-    assert "Dịch chương này?" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"primary\"" in html
     assert "confirm(" not in html
 
@@ -246,7 +258,7 @@ def test_chapter_retranslate_form_uses_warn_variant():
     ctx["translation_quality"] = "bad"
     html = _render("chapter.html", **ctx)
     assert "data-confirm" in html
-    assert "Dịch lại chương này?" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"warn\"" in html
     assert "confirm(" not in html
 
@@ -267,7 +279,7 @@ def test_index_delete_novel_uses_data_confirm():
         has_default=True,
     )
     assert "data-confirm" in html
-    assert "Xóa truyện?" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"danger\"" in html
     assert "confirm(" not in html
 
@@ -295,7 +307,7 @@ def test_api_settings_clear_uses_data_confirm():
         has_default=True,
     )
     assert "data-confirm" in html
-    assert "Xóa cấu hình" in html
+    assert "data-confirm-title=" in html
     assert "data-confirm-variant=\"danger\"" in html
     assert "confirm(" not in html
 

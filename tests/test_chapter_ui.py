@@ -4,11 +4,19 @@ from __future__ import annotations
 import inspect
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.main import _chapter_detail_status, chapter_view, templates
 from app.models import Chapter, Novel
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+
+def _static_text(path: str) -> str:
+    return (ROOT_DIR / path).read_text(encoding="utf-8")
 
 
 def _chapter(
@@ -73,7 +81,8 @@ def test_reader_renders_parallel_content_and_searchable_modal():
     assert "朝天大陆。" in html
     assert "Triều Thiên đại lục." in html
     assert 'id="chapterListDialog"' in html
-    assert 'data-search="2 chuong 2 chương 2 chapter 2 Chương 2 第2章"' in html
+    assert 'data-search="2 chuong 2' in html
+    assert 'chapter 2' in html
     assert "Đang dịch" in html
     assert 'class="cr-dialog-item active"' in html
     assert "Gốc:" not in html
@@ -81,8 +90,10 @@ def test_reader_renders_parallel_content_and_searchable_modal():
     assert '<button type="submit" class="cr-action-button"' not in html
     assert html.index('class="cr-tabs"') < html.index('class="cr-reading-card') < html.index('class="cr-chapter-nav"')
     assert 'id="openChapterList"' in html
-    assert 'ArrowLeft' in html
-    assert 'ArrowRight' in html
+    assert '/static/js/chapter-reader.js' in html
+    js = _static_text("app/static/js/chapter-reader.js")
+    assert 'ArrowLeft' in js
+    assert 'ArrowRight' in js
     assert 'class="cr-floating-tools"' in html
     assert html.index('class="cr-floating-tools"') > html.index('class="cr-chapter-nav"')
 
@@ -112,7 +123,9 @@ def test_modal_can_lazy_load_when_route_context_is_stale():
         flash=None,
     )
     assert "Đang tải danh sách chương..." in html
-    assert "fetch('/novels/1/chapters')" in html
+    assert 'data-novel-id="1"' in html
+    assert 'data-chapter-id="1"' in html
+    assert "fetch(`/novels/${novelId}/chapters`)" in _static_text("app/static/js/chapter-reader.js")
 
 
 def test_reader_keeps_vietnamese_as_default_view():

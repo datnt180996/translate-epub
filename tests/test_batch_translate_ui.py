@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import asyncio
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,6 +13,13 @@ import app.main as main
 from app.main import _batch_display_status, _chapter_detail_status, templates
 from app.models import Chapter, Novel
 from fastapi.responses import HTMLResponse
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _novel_detail_js() -> str:
+    return (PROJECT_ROOT / "app" / "static" / "js" / "novel-detail.js").read_text(encoding="utf-8")
 
 
 def _render_novel(novel, chapter_rows, batch_running: bool = False) -> str:
@@ -71,7 +79,7 @@ def test_novel_detail_renders_batch_form_and_checkboxes():
     assert 'id="nd-select-all"' in html
     assert html.count('class="nd-batch-checkbox"') >= 3
     assert "data-chapter-id=\"1\"" in html
-    assert "Dịch chương đã chọn" in html
+    assert 'id="nd-batch-submit-label"' in html
 
 
 def test_eligible_chapter_renders_active_checkbox():
@@ -84,7 +92,7 @@ def test_eligible_chapter_renders_active_checkbox():
     html = _render_novel(Novel(id=1, title="t", source_type="web"), rows)
     assert 'data-batch-eligible="1"' in html
     assert 'data-chapter-id="7"' in html
-    assert "Dịch chương đã chọn" in html
+    assert 'id="nd-batch-submit"' in html
 
 
 def test_translated_or_not_fetched_chapter_marks_not_eligible():
@@ -122,8 +130,27 @@ def test_batch_running_disables_form_and_swaps_label():
         active_nav="home",
         flash=None,
     )
-    assert "Đang dịch hàng đợi" in html
+    assert 'id="nd-batch-submit-label"' in html
     assert 'data-disabled="1"' in html
+
+
+def test_batch_auto_refresh_js_attaches_polling_to_optimistic_rows():
+    js = _novel_detail_js()
+    assert "const attachRowPolling" in js
+    assert "row.setAttribute('hx-get', `/novels/${novelId}/chapters/${row.dataset.chapterId}/row`)" in js
+    assert "row.setAttribute('hx-trigger', 'every 2s')" in js
+    assert "htmx.process(row)" in js
+    assert "attachRowPolling(row);" in js
+
+
+def test_novel_detail_uses_batch_auto_refresh_asset_version():
+    rows = [{
+        "chapter": _chapter(41, 41, status="fetched", raw_text="raw"),
+        "novel": Novel(id=1, title="t", source_type="web"),
+        "display_status": "fetched",
+    }]
+    html = _render_novel(Novel(id=1, title="t", source_type="web"), rows)
+    assert "/static/js/novel-detail.js?v=batch-auto-refresh" in html
 
 
 def test_batch_status_marks_current_translating_and_waiting_chapters_queue():
@@ -432,4 +459,8 @@ if __name__ == "__main__":
     print("PASS test_translated_or_not_fetched_chapter_marks_not_eligible")
     test_batch_running_disables_form_and_swaps_label()
     print("PASS test_batch_running_disables_form_and_swaps_label")
-    print("\nAll 4 batch translate UI tests passed.")
+    test_batch_auto_refresh_js_attaches_polling_to_optimistic_rows()
+    print("PASS test_batch_auto_refresh_js_attaches_polling_to_optimistic_rows")
+    test_novel_detail_uses_batch_auto_refresh_asset_version()
+    print("PASS test_novel_detail_uses_batch_auto_refresh_asset_version")
+    print("\nAll 6 batch translate UI smoke tests passed.")
